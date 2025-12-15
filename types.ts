@@ -16,6 +16,7 @@ export interface Reservation {
   startTime: string; // HH:mm
   endTime: string; // HH:mm
   requester: string;
+  observation?: string; // New field added
   scaffoldingType?: 'assembly' | 'disassembly'; // Only for scaffolding
   createdAt?: string;
 }

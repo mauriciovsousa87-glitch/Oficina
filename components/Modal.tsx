@@ -4,23 +4,23 @@ import { FaTimes } from 'react-icons/fa';
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
-  title: string;
   children: React.ReactNode;
+  maxWidth?: string;
 }
 
-const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
+const Modal: React.FC<ModalProps> = ({ isOpen, onClose, children, maxWidth = 'max-w-xl' }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg transform transition-all scale-100">
-        <div className="flex justify-between items-center p-5 border-b border-slate-100">
-          <h3 className="text-xl font-bold text-slate-800">{title}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-red-500 transition-colors">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 backdrop-blur-sm p-4 overflow-y-auto">
+      <div className={`bg-white rounded-2xl shadow-2xl w-full ${maxWidth} transform transition-all scale-100 relative my-8`}>
+        <button 
+            onClick={onClose} 
+            className="absolute top-4 right-4 z-10 text-slate-400 hover:text-slate-600 bg-white/50 rounded-full p-1 transition-colors"
+        >
             <FaTimes size={20} />
-          </button>
-        </div>
-        <div className="p-6">
+        </button>
+        <div>
           {children}
         </div>
       </div>

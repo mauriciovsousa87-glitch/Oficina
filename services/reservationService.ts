@@ -2,9 +2,33 @@ import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { Reservation, Equipment } from '../types';
 import { INITIAL_EQUIPMENT } from '../constants';
 
-// MOCK DATA STORAGE (Fallback if Supabase is not connected)
-let mockReservations: Reservation[] = [];
-let mockEquipment: Equipment[] = [...INITIAL_EQUIPMENT];
+// --- LOCAL STORAGE HELPERS (PERSISTENCE FOR OFFLINE MODE) ---
+const STORAGE_KEYS = {
+  RESERVATIONS: 'oficina_sys_reservations_v1',
+  EQUIPMENT: 'oficina_sys_equipment_v1'
+};
+
+const loadFromStorage = <T>(key: string, defaultVal: T): T => {
+  try {
+    const item = localStorage.getItem(key);
+    return item ? JSON.parse(item) : defaultVal;
+  } catch (e) {
+    console.warn(`Failed to load ${key} from storage`, e);
+    return defaultVal;
+  }
+};
+
+const saveToStorage = (key: string, data: any) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch (e) {
+    console.warn(`Failed to save ${key} to storage`, e);
+  }
+};
+
+// MOCK DATA INITIALIZATION
+let mockReservations: Reservation[] = loadFromStorage(STORAGE_KEYS.RESERVATIONS, []);
+let mockEquipment: Equipment[] = loadFromStorage(STORAGE_KEYS.EQUIPMENT, [...INITIAL_EQUIPMENT]);
 
 // Helpers
 const parseTime = (time: string) => parseInt(time.replace(':', ''), 10);
@@ -28,7 +52,6 @@ export const checkOverlap = async (
     const resStart = parseTime(res.startTime);
     const resEnd = parseTime(res.endTime);
 
-    // Overlap logic: (StartA < EndB) and (EndA > StartB)
     return start < resEnd && end > resStart;
   });
 };
@@ -36,12 +59,16 @@ export const checkOverlap = async (
 // --- CRUD Operations ---
 
 export const getEquipment = async (): Promise<Equipment[]> => {
-  if (!isSupabaseConfigured()) return Promise.resolve(mockEquipment);
+  if (!isSupabaseConfigured()) {
+    // Always refresh from storage in case of multiple tabs
+    mockEquipment = loadFromStorage(STORAGE_KEYS.EQUIPMENT, mockEquipment);
+    return Promise.resolve([...mockEquipment]);
+  }
 
   try {
     const { data, error } = await supabase.from('equipment').select('*');
     if (error) throw error;
-    if (!data) return mockEquipment;
+    if (!data) return [...mockEquipment];
     
     return data.map((d: any) => ({
       id: d.id.toString(),
@@ -51,7 +78,7 @@ export const getEquipment = async (): Promise<Equipment[]> => {
     }));
   } catch (e) {
     console.warn("Supabase fetch error, falling back to mock:", e);
-    return mockEquipment;
+    return [...mockEquipment];
   }
 };
 
@@ -59,6 +86,7 @@ export const saveEquipment = async (equip: Equipment): Promise<Equipment> => {
   if (!isSupabaseConfigured()) {
     const newEquip = { ...equip, id: equip.id || Math.random().toString(36).substr(2, 9) };
     mockEquipment.push(newEquip);
+    saveToStorage(STORAGE_KEYS.EQUIPMENT, mockEquipment);
     return Promise.resolve(newEquip);
   }
   
@@ -75,13 +103,15 @@ export const saveEquipment = async (equip: Equipment): Promise<Equipment> => {
     console.error("Save failed, using mock", e);
     const newEquip = { ...equip, id: equip.id || Math.random().toString(36).substr(2, 9) };
     mockEquipment.push(newEquip);
+    saveToStorage(STORAGE_KEYS.EQUIPMENT, mockEquipment);
     return newEquip;
   }
 };
 
 export const deleteEquipment = async (id: string): Promise<void> => {
    if (!isSupabaseConfigured()) {
-    mockEquipment = mockEquipment.filter(e => e.id !== id);
+    mockEquipment = mockEquipment.filter(e => String(e.id) !== String(id));
+    saveToStorage(STORAGE_KEYS.EQUIPMENT, mockEquipment);
     return Promise.resolve();
   }
   
@@ -89,11 +119,11 @@ export const deleteEquipment = async (id: string): Promise<void> => {
     const { error } = await supabase.from('equipment').delete().eq('id', id);
     if (error) throw error;
   } catch (e) {
-    console.error("Delete failed, using mock", e);
-    mockEquipment = mockEquipment.filter(e => e.id !== id);
+    console.error("Delete failed, using mock fallback", e);
+    mockEquipment = mockEquipment.filter(e => String(e.id) !== String(id));
+    saveToStorage(STORAGE_KEYS.EQUIPMENT, mockEquipment);
   }
 };
-
 
 export const getReservationsByDate = async (date: string): Promise<Reservation[]> => {
   if (!isSupabaseConfigured()) {
@@ -117,7 +147,8 @@ export const getReservationsByDate = async (date: string): Promise<Reservation[]
         startTime: r.start_time,
         endTime: r.end_time,
         requester: r.requester,
-        scaffoldingType: r.scaffolding_type
+        scaffoldingType: r.scaffolding_type,
+        observation: r.observation
     }));
   } catch (e) {
       console.warn("Reservation fetch failed, using mock:", e);
@@ -127,6 +158,7 @@ export const getReservationsByDate = async (date: string): Promise<Reservation[]
 
 export const getAllReservations = async (): Promise<Reservation[]> => {
   if (!isSupabaseConfigured()) {
+    mockReservations = loadFromStorage(STORAGE_KEYS.RESERVATIONS, mockReservations);
     return Promise.resolve(mockReservations);
   }
   try {
@@ -141,7 +173,8 @@ export const getAllReservations = async (): Promise<Reservation[]> => {
         startTime: r.start_time,
         endTime: r.end_time,
         requester: r.requester,
-        scaffoldingType: r.scaffolding_type
+        scaffoldingType: r.scaffolding_type,
+        observation: r.observation
     }));
   } catch (e) {
       console.warn("Get all failed, using mock:", e);
@@ -150,7 +183,6 @@ export const getAllReservations = async (): Promise<Reservation[]> => {
 }
 
 export const createReservation = async (res: Omit<Reservation, 'id'>): Promise<Reservation> => {
-  // Validate Overlap locally first (optimistic)
   const hasOverlap = await checkOverlap(res.date, res.startTime, res.endTime, res.resourceId);
   if (hasOverlap) {
     throw new Error("Conflito de horário detectado para este recurso.");
@@ -159,6 +191,7 @@ export const createReservation = async (res: Omit<Reservation, 'id'>): Promise<R
   if (!isSupabaseConfigured()) {
     const newRes = { ...res, id: Math.random().toString(36).substr(2, 9) };
     mockReservations.push(newRes);
+    saveToStorage(STORAGE_KEYS.RESERVATIONS, mockReservations);
     return Promise.resolve(newRes);
   }
 
@@ -171,7 +204,8 @@ export const createReservation = async (res: Omit<Reservation, 'id'>): Promise<R
         start_time: res.startTime,
         end_time: res.endTime,
         requester: res.requester,
-        scaffolding_type: res.scaffoldingType
+        scaffolding_type: res.scaffoldingType,
+        observation: res.observation
     }]).select();
 
     if (error) throw error;
@@ -181,6 +215,7 @@ export const createReservation = async (res: Omit<Reservation, 'id'>): Promise<R
       console.error("Create failed, using mock", e);
       const newRes = { ...res, id: Math.random().toString(36).substr(2, 9) };
       mockReservations.push(newRes);
+      saveToStorage(STORAGE_KEYS.RESERVATIONS, mockReservations);
       return newRes;
   }
 };
@@ -188,6 +223,7 @@ export const createReservation = async (res: Omit<Reservation, 'id'>): Promise<R
 export const deleteReservation = async (id: string): Promise<void> => {
   if (!isSupabaseConfigured()) {
     mockReservations = mockReservations.filter(r => r.id !== id);
+    saveToStorage(STORAGE_KEYS.RESERVATIONS, mockReservations);
     return Promise.resolve();
   }
   try {
@@ -196,5 +232,6 @@ export const deleteReservation = async (id: string): Promise<void> => {
   } catch (e) {
       console.error("Delete failed, using mock", e);
       mockReservations = mockReservations.filter(r => r.id !== id);
+      saveToStorage(STORAGE_KEYS.RESERVATIONS, mockReservations);
   }
 };
