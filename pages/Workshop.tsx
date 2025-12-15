@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FaPlus, FaTrash, FaTools, FaInfoCircle } from 'react-icons/fa';
+import { FaPlus, FaTrash, FaTools, FaInfoCircle, FaLock, FaExclamationTriangle } from 'react-icons/fa';
 import CalendarView from '../components/CalendarView';
 import Modal from '../components/Modal';
 import { HOURS, MASTER_PASSWORD } from '../constants';
@@ -16,6 +16,12 @@ const Workshop: React.FC = () => {
   const [isDayModalOpen, setIsDayModalOpen] = useState(false);
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   
+  // Password Modal State
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<string | null>(null);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [passwordError, setPasswordError] = useState(false);
+
   // Form State
   const [formData, setFormData] = useState({
     resourceId: '',
@@ -33,7 +39,8 @@ const Workshop: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const equip = await reservationService.getEquipment();
+      // Get ONLY active equipment for the workshop dropdown
+      const equip = await reservationService.getEquipment(false);
       setEquipmentList(equip.filter(e => e.type !== 'vehicle'));
       
       const allRes = await reservationService.getAllReservations();
@@ -86,19 +93,47 @@ const Workshop: React.FC = () => {
       });
       alert("Reserva realizada com sucesso!");
       loadData();
-      setIsDayModalOpen(false);
+      // Keep modal open so user can see the new reservation
     } catch (err: any) {
       alert(err.message);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    const pwd = prompt("Digite a senha mestre para cancelar:");
-    if (pwd === MASTER_PASSWORD) {
-      await reservationService.deleteReservation(id);
+  // 1. User clicks Trash -> Open Custom Password Modal
+  const requestDelete = (id: string) => {
+    setItemToDelete(id);
+    setDeletePassword('');
+    setPasswordError(false);
+    setShowDeleteConfirm(true);
+  };
+
+  // 2. User confirms inside the modal
+  const confirmDelete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (deletePassword !== MASTER_PASSWORD) {
+        setPasswordError(true);
+        return;
+    }
+
+    if (!itemToDelete) return;
+
+    try {
+      // Optimistic Update
+      setReservations(prev => prev.filter(r => r.id !== itemToDelete));
+      
+      // Close password modal
+      setShowDeleteConfirm(false);
+      
+      // Perform deletion
+      await reservationService.deleteReservation(itemToDelete);
+      
+      // Reload to ensure sync
       loadData();
-    } else {
-      alert("Senha incorreta.");
+    } catch (error) {
+      console.error("Erro ao excluir", error);
+      alert("Erro ao excluir. Tente novamente.");
+      loadData();
     }
   };
 
@@ -152,14 +187,14 @@ const Workshop: React.FC = () => {
         </>
       )}
 
-      {/* Detail Modal */}
+      {/* Main Detail Modal */}
       <Modal 
         isOpen={isDayModalOpen} 
         onClose={() => setIsDayModalOpen(false)} 
       >
         <div className="bg-white rounded-2xl overflow-hidden">
           
-            {/* Header with Icon - Matching Print */}
+            {/* Header */}
             <div className="p-6 pb-4">
                 <div className="flex items-center gap-3 mb-2">
                     <div className="bg-blue-600 text-white p-2.5 rounded-lg shadow-lg shadow-blue-500/30">
@@ -280,8 +315,14 @@ const Workshop: React.FC = () => {
                                             {res.observation && <span className="text-slate-400">• {res.observation}</span>}
                                         </div>
                                     </div>
-                                    <button onClick={() => handleDelete(res.id)} className="text-slate-300 hover:text-red-500 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <FaTrash size={14} />
+                                    {/* Delete Trigger Button */}
+                                    <button 
+                                        type="button" 
+                                        onClick={() => requestDelete(res.id)} 
+                                        className="text-slate-300 hover:text-red-500 p-2 transition-colors"
+                                        title="Excluir Reserva"
+                                    >
+                                        <FaTrash size={16} />
                                     </button>
                                 </div>
                             ))}
@@ -291,6 +332,59 @@ const Workshop: React.FC = () => {
             </div>
         </div>
       </Modal>
+
+      {/* CUSTOM PASSWORD MODAL (Overlay) */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900 bg-opacity-80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 relative transform scale-100">
+                <div className="flex flex-col items-center text-center mb-4">
+                    <div className="bg-red-100 text-red-600 p-3 rounded-full mb-3">
+                        <FaExclamationTriangle size={24} />
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-800">Autorização Necessária</h3>
+                    <p className="text-sm text-slate-500 mt-1">Esta ação não pode ser desfeita. Digite a senha administrativa para confirmar.</p>
+                </div>
+
+                <form onSubmit={confirmDelete}>
+                    <div className="relative mb-4">
+                        <span className="absolute left-3 top-3 text-slate-400">
+                            <FaLock />
+                        </span>
+                        <input 
+                            type="password" 
+                            autoFocus
+                            placeholder="Senha (1234)"
+                            className={`w-full pl-10 pr-4 py-2.5 border rounded-lg outline-none focus:ring-2 transition-all ${passwordError ? 'border-red-300 ring-2 ring-red-100' : 'border-slate-200 focus:ring-blue-500'}`}
+                            value={deletePassword}
+                            onChange={(e) => {
+                                setDeletePassword(e.target.value);
+                                setPasswordError(false);
+                            }}
+                        />
+                        {passwordError && (
+                            <span className="text-xs text-red-500 font-bold mt-1 block text-left">Senha incorreta. Tente novamente.</span>
+                        )}
+                    </div>
+
+                    <div className="flex gap-3">
+                        <button 
+                            type="button" 
+                            onClick={() => setShowDeleteConfirm(false)}
+                            className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors"
+                        >
+                            Cancelar
+                        </button>
+                        <button 
+                            type="submit" 
+                            className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-lg shadow-red-500/20 transition-colors"
+                        >
+                            Excluir
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+      )}
     </div>
   );
 };

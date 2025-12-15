@@ -5,7 +5,8 @@ import { INITIAL_EQUIPMENT } from '../constants';
 // --- LOCAL STORAGE HELPERS ---
 const STORAGE_KEYS = {
   RESERVATIONS: 'oficina_sys_reservations_v2',
-  EQUIPMENT: 'oficina_sys_equipment_v2'
+  EQUIPMENT: 'oficina_sys_equipment_v2',
+  BLACKLIST: 'oficina_sys_equipment_blacklist_v1'
 };
 
 const loadFromStorage = <T>(key: string, defaultVal: T): T => {
@@ -60,6 +61,8 @@ export const checkOverlap = async (
 
 // Updated: Accepts includeInactive parameter to allow Settings page to see everything
 export const getEquipment = async (includeInactive: boolean = false): Promise<Equipment[]> => {
+  // 1. Blacklist for instant UI responsiveness
+  const blacklist = loadFromStorage<string[]>(STORAGE_KEYS.BLACKLIST, []);
   let result: Equipment[] = [];
 
   // OFFLINE MODE
@@ -98,11 +101,11 @@ export const getEquipment = async (includeInactive: boolean = false): Promise<Eq
   }
 
   // Double check filtering (for offline or fallback)
-  if (!includeInactive) {
-      return result.filter(e => e.isActive !== false);
-  }
-
-  return result;
+  return result.filter(e => {
+      if (blacklist.includes(e.id)) return false;
+      if (!includeInactive && e.isActive === false) return false;
+      return true;
+  });
 };
 
 // Updated: Handles both Insert (Create) and Update (Edit)
@@ -166,6 +169,13 @@ export const saveEquipment = async (equip: Equipment): Promise<Equipment> => {
 // Legacy delete kept for safety, but we primarily use saveEquipment for toggling active status now
 export const deleteEquipment = async (id: string): Promise<void> => {
    const idStr = String(id);
+   
+   // Blacklist immediately
+   const blacklist = loadFromStorage<string[]>(STORAGE_KEYS.BLACKLIST, []);
+   if (!blacklist.includes(idStr)) {
+       blacklist.push(idStr);
+       saveToStorage(STORAGE_KEYS.BLACKLIST, blacklist);
+   }
 
    // OFFLINE
    if (!isSupabaseConfigured()) {
@@ -293,6 +303,9 @@ export const deleteReservation = async (id: string): Promise<void> => {
     return Promise.resolve();
   }
   
+  // Robust ID handling: check if it's purely digits (DB Integer) or alphanumeric (UUID or fallback string)
+  // If your Supabase ID is integer, we must parse. If it's UUID, we must leave as string.
+  // We try to guess based on content.
   const idParam = /^\d+$/.test(id) ? parseInt(id, 10) : id;
 
   const { error } = await supabase.from('reservations').delete().eq('id', idParam);
@@ -302,6 +315,7 @@ export const deleteReservation = async (id: string): Promise<void> => {
       throw error;
   }
   
+  // Update local cache regardless of online status to ensure consistency if network flaps
   mockReservations = mockReservations.filter(r => r.id !== id);
   saveToStorage(STORAGE_KEYS.RESERVATIONS, mockReservations);
 };
