@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { FaTrash, FaPlus, FaUndo, FaExclamationTriangle, FaCloud } from 'react-icons/fa';
+import { FaPen, FaPlus, FaCloud, FaSave, FaTimes } from 'react-icons/fa';
 import * as reservationService from '../services/reservationService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { Equipment } from '../types';
-import { INITIAL_EQUIPMENT } from '../constants';
 
 const Settings: React.FC = () => {
   const [equipment, setEquipment] = useState<Equipment[]>([]);
-  const [newEqName, setNewEqName] = useState('');
-  const [newEqType, setNewEqType] = useState('machine');
+  // Form State
+  const [eqName, setEqName] = useState('');
+  const [eqType, setEqType] = useState('machine');
+  const [editingId, setEditingId] = useState<string | null>(null); // If set, we are editing
+  
   const [isConnected, setIsConnected] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     load();
@@ -17,60 +20,80 @@ const Settings: React.FC = () => {
   }, []);
 
   const load = async () => {
+    setLoading(true);
     try {
-        const data = await reservationService.getEquipment();
+        // Fetch ALL equipment (Active and Inactive) for settings management
+        const data = await reservationService.getEquipment(true);
         setEquipment(data);
     } catch (error) {
         console.error("Error loading equipment:", error);
+    } finally {
+        setLoading(false);
     }
   };
 
-  const handleAdd = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newEqName) return;
+    if (!eqName) return;
     
+    setLoading(true);
     try {
+        // Find existing to preserve isActive status if editing, else default true
+        const existing = equipment.find(e => e.id === editingId);
+        
         await reservationService.saveEquipment({
-            id: '', 
-            name: newEqName,
-            type: newEqType as any,
-            isActive: true
+            id: editingId || '', // Empty ID means insert new
+            name: eqName,
+            type: eqType as any,
+            isActive: existing ? existing.isActive : true
         });
-        setNewEqName('');
+        
+        // Reset form
+        setEqName('');
+        setEqType('machine');
+        setEditingId(null);
+        
         await load(); 
     } catch (e) {
         console.error(e);
         alert("Erro ao salvar.");
+    } finally {
+        setLoading(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm("Tem certeza que deseja remover este equipamento?")) {
-        try {
-            await reservationService.deleteEquipment(id);
-            await load();
-        } catch (e) {
-            console.error("Failed to delete", e);
-            alert("Erro ao excluir. Tente novamente.");
-        }
-    }
+  const handleEditClick = (eq: Equipment) => {
+      setEditingId(eq.id);
+      setEqName(eq.name);
+      setEqType(eq.type);
+      // Scroll to top to see form
+      window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const restoreDefaults = async () => {
-    if (window.confirm("Isso irá recriar os equipamentos padrão. Continuar?")) {
-        for (const eq of INITIAL_EQUIPMENT) {
-            await reservationService.saveEquipment(eq);
-        }
-        await load();
-    }
+  const handleCancelEdit = () => {
+      setEditingId(null);
+      setEqName('');
+      setEqType('machine');
   };
 
-  const handleHardReset = () => {
-    const confirmation = prompt("DIGITE 'RESET' para limpar cache local e recarregar. (Dados do servidor não serão apagados)");
-    if (confirmation === 'RESET') {
-        localStorage.clear();
-        window.location.reload();
-    }
+  const handleToggleStatus = async (eq: Equipment) => {
+      // Optimistic Update
+      const newStatus = !eq.isActive;
+      setEquipment(prev => prev.map(e => e.id === eq.id ? { ...e, isActive: newStatus } : e));
+
+      try {
+          await reservationService.saveEquipment({
+              ...eq,
+              isActive: newStatus
+          });
+          // Silent background refresh
+          load();
+      } catch (e) {
+          console.error("Error toggling status", e);
+          // Revert on error
+          setEquipment(prev => prev.map(e => e.id === eq.id ? { ...e, isActive: !newStatus } : e));
+          alert("Erro ao alterar status.");
+      }
   };
 
   return (
@@ -78,84 +101,108 @@ const Settings: React.FC = () => {
       <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-slate-800">Configurações</h1>
           
-          <div className="flex items-center gap-4">
-            <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm font-bold border ${isConnected ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}>
+          <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm font-bold border ${isConnected ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}>
                 <FaCloud />
                 {isConnected ? 'Banco de Dados Conectado' : 'Modo Offline'}
-            </div>
-            
-            <button 
-                onClick={handleHardReset}
-                className="text-xs bg-red-50 hover:bg-red-100 text-red-600 px-3 py-2 rounded flex items-center gap-2 border border-red-100 transition-colors"
-            >
-                <FaExclamationTriangle /> Resetar App
-            </button>
           </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         
-        {/* Add New Equipment */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <h2 className="text-xl font-bold mb-4 text-slate-700">Adicionar Equipamento</h2>
-          <form onSubmit={handleAdd} className="space-y-4">
+        {/* Add/Edit Form */}
+        <div className={`bg-white p-6 rounded-xl shadow-sm border transition-colors ${editingId ? 'border-blue-300 ring-4 ring-blue-50' : 'border-slate-200'}`}>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold text-slate-700">
+                {editingId ? 'Editar Equipamento' : 'Adicionar Equipamento'}
+            </h2>
+            {editingId && (
+                <button onClick={handleCancelEdit} className="text-sm text-slate-400 hover:text-red-500 flex items-center gap-1">
+                    <FaTimes /> Cancelar
+                </button>
+            )}
+          </div>
+          
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome</label>
               <input 
-                value={newEqName}
-                onChange={e => setNewEqName(e.target.value)}
-                className="w-full p-2 border border-slate-300 rounded"
+                value={eqName}
+                onChange={e => setEqName(e.target.value)}
+                className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
                 placeholder="Ex: Torno Mecânico"
+                disabled={loading}
               />
             </div>
             <div>
                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tipo</label>
                <select 
-                value={newEqType} 
-                onChange={e => setNewEqType(e.target.value)}
-                className="w-full p-2 border border-slate-300 rounded"
+                value={eqType} 
+                onChange={e => setEqType(e.target.value)}
+                className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                disabled={loading}
                >
                    <option value="machine">Máquina</option>
                    <option value="tool">Ferramenta</option>
                    <option value="vehicle">Veículo</option>
                </select>
             </div>
-            <button type="submit" className="flex items-center justify-center gap-2 w-full bg-blue-600 text-white font-bold py-2 rounded hover:bg-blue-700 transition-colors">
-                <FaPlus /> Adicionar
+            
+            <button 
+                type="submit" 
+                className={`flex items-center justify-center gap-2 w-full text-white font-bold py-3 rounded transition-all shadow-md ${
+                    editingId 
+                    ? 'bg-green-600 hover:bg-green-700 shadow-green-500/20' 
+                    : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20'
+                } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                disabled={loading}
+            >
+                {editingId ? <FaSave /> : <FaPlus />} 
+                {loading ? 'Processando...' : (editingId ? 'Salvar Alterações' : 'Adicionar')}
             </button>
           </form>
         </div>
 
         {/* List */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold text-slate-700">Equipamentos Ativos</h2>
-            {equipment.length === 0 && !isConnected && (
-                <button onClick={restoreDefaults} className="text-xs flex items-center gap-1 text-blue-500 hover:underline">
-                    <FaUndo /> Restaurar Padrões
-                </button>
-            )}
-          </div>
+          <h2 className="text-xl font-bold text-slate-700 mb-4">Gerenciar Equipamentos</h2>
           
-          <div className="space-y-2 max-h-96 overflow-y-auto">
+          <div className={`space-y-2 max-h-[500px] overflow-y-auto pr-2`}>
             {equipment.length > 0 ? (
                 equipment.map(eq => (
-                    <div key={eq.id} className="flex justify-between items-center p-3 bg-slate-50 rounded border border-slate-100 hover:border-slate-200 transition-colors">
-                        <div>
-                            <span className="font-semibold text-slate-700">{eq.name}</span>
-                            <span className="text-xs text-slate-400 block uppercase">{eq.type}</span>
+                    <div key={eq.id} className={`flex justify-between items-center p-3 rounded border transition-colors ${eq.isActive ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-100'}`}>
+                        <div className="flex items-center gap-3">
+                            <div className={`w-1 h-10 rounded-full ${eq.isActive ? 'bg-blue-500' : 'bg-slate-300'}`}></div>
+                            <div>
+                                <span className={`font-semibold block ${eq.isActive ? 'text-slate-700' : 'text-slate-400 line-through'}`}>{eq.name}</span>
+                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{eq.type}</span>
+                            </div>
                         </div>
-                        <button 
-                            onClick={() => handleDelete(eq.id)} 
-                            className="text-slate-300 hover:text-red-500 p-2 transition-colors cursor-pointer"
-                            title="Excluir"
-                        >
-                            <FaTrash />
-                        </button>
+                        
+                        <div className="flex items-center gap-2">
+                            {/* Toggle Switch */}
+                            <button 
+                                onClick={() => handleToggleStatus(eq)}
+                                className={`relative w-11 h-6 transition-colors rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${eq.isActive ? 'bg-green-500' : 'bg-slate-300'}`}
+                                title={eq.isActive ? "Desativar" : "Ativar"}
+                            >
+                                <span className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform transform shadow-sm ${eq.isActive ? 'translate-x-5' : 'translate-x-0'}`} />
+                            </button>
+
+                            {/* Edit Button */}
+                            <button 
+                                onClick={() => handleEditClick(eq)} 
+                                className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-blue-100 hover:text-blue-600 transition-colors"
+                                title="Editar"
+                            >
+                                <FaPen size={12} />
+                            </button>
+                        </div>
                     </div>
                 ))
             ) : (
-                <p className="text-slate-400 italic text-center py-4">Nenhum equipamento encontrado.</p>
+                <p className="text-slate-400 italic text-center py-8 bg-slate-50 rounded border border-dashed border-slate-200">
+                    {loading ? 'Carregando...' : 'Nenhum equipamento cadastrado.'}
+                </p>
             )}
           </div>
         </div>

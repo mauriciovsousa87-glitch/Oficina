@@ -58,99 +58,134 @@ export const checkOverlap = async (
 
 // --- CRUD Operations ---
 
-export const getEquipment = async (): Promise<Equipment[]> => {
-  // 1. If Offline, refresh from storage explicitly to ensure UI is in sync
+// Updated: Accepts includeInactive parameter to allow Settings page to see everything
+export const getEquipment = async (includeInactive: boolean = false): Promise<Equipment[]> => {
+  let result: Equipment[] = [];
+
+  // OFFLINE MODE
   if (!isSupabaseConfigured()) {
     mockEquipment = loadFromStorage(STORAGE_KEYS.EQUIPMENT, [...INITIAL_EQUIPMENT]);
-    return Promise.resolve([...mockEquipment]);
+    result = mockEquipment;
+  } else {
+    // ONLINE MODE
+    try {
+      let query = supabase
+        .from('equipment')
+        .select('*')
+        .order('name', { ascending: true });
+
+      // If we ONLY want active ones (for Workshop page), filter in DB
+      if (!includeInactive) {
+        query = query.eq('is_active', true);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+      
+      if (data) {
+        result = data.map((d: any) => ({
+          id: d.id.toString(),
+          name: d.name,
+          type: d.type,
+          isActive: d.is_active 
+        }));
+      }
+    } catch (e) {
+      console.warn("Supabase fetch error (using local fallback):", e);
+      result = [...mockEquipment];
+    }
   }
 
-  // 2. If Online, try to fetch
-  try {
-    const { data, error } = await supabase
-      .from('equipment')
-      .select('*')
-      .order('name', { ascending: true });
-
-    if (error) throw error;
-    
-    if (!data) return [];
-    
-    return data.map((d: any) => ({
-      id: d.id.toString(),
-      name: d.name,
-      type: d.type,
-      isActive: d.is_active
-    }));
-  } catch (e) {
-    console.warn("Supabase fetch error (using local fallback):", e);
-    return [...mockEquipment];
+  // Double check filtering (for offline or fallback)
+  if (!includeInactive) {
+      return result.filter(e => e.isActive !== false);
   }
+
+  return result;
 };
 
+// Updated: Handles both Insert (Create) and Update (Edit)
 export const saveEquipment = async (equip: Equipment): Promise<Equipment> => {
-  // Offline Mode
+  // OFFLINE
   if (!isSupabaseConfigured()) {
-    const newEquip = { ...equip, id: equip.id || Math.random().toString(36).substr(2, 9) };
-    // Reload latest before saving to avoid overwrites
-    const current = loadFromStorage(STORAGE_KEYS.EQUIPMENT, [...INITIAL_EQUIPMENT]);
-    mockEquipment = [...current, newEquip];
-    saveToStorage(STORAGE_KEYS.EQUIPMENT, mockEquipment);
-    return Promise.resolve(newEquip);
+    const current = loadFromStorage<Equipment[]>(STORAGE_KEYS.EQUIPMENT, [...INITIAL_EQUIPMENT]);
+    
+    if (equip.id) {
+        // UPDATE
+        const updated = current.map(e => e.id === equip.id ? equip : e);
+        mockEquipment = updated;
+        saveToStorage(STORAGE_KEYS.EQUIPMENT, mockEquipment);
+        return Promise.resolve(equip);
+    } else {
+        // INSERT
+        const newEquip = { ...equip, id: Math.random().toString(36).substr(2, 9) };
+        mockEquipment = [...current, newEquip];
+        saveToStorage(STORAGE_KEYS.EQUIPMENT, mockEquipment);
+        return Promise.resolve(newEquip);
+    }
   }
   
-  // Online Mode
+  // ONLINE
   try {
-    const { data, error } = await supabase.from('equipment').insert([{
-      name: equip.name,
-      type: equip.type,
-      is_active: equip.isActive
-    }]).select();
-    
-    if (error) throw error;
-    return { ...equip, id: data[0].id.toString() };
+    if (equip.id) {
+        // UPDATE
+        // Ensure ID is number if DB requires it, or string
+        const idParam = /^\d+$/.test(equip.id) ? parseInt(equip.id, 10) : equip.id;
+        
+        const { data, error } = await supabase
+            .from('equipment')
+            .update({
+                name: equip.name,
+                type: equip.type,
+                is_active: equip.isActive
+            })
+            .eq('id', idParam)
+            .select();
+
+        if (error) throw error;
+        return { ...equip }; // Return updated object
+    } else {
+        // INSERT
+        const { data, error } = await supabase.from('equipment').insert([{
+            name: equip.name,
+            type: equip.type,
+            is_active: equip.isActive
+        }]).select();
+        
+        if (error) throw error;
+        return { ...equip, id: data[0].id.toString() };
+    }
   } catch (e) {
     console.error("Save failed, falling back to local storage", e);
-    const newEquip = { ...equip, id: equip.id || Math.random().toString(36).substr(2, 9) };
-    mockEquipment.push(newEquip);
-    saveToStorage(STORAGE_KEYS.EQUIPMENT, mockEquipment);
-    return newEquip;
+    // Fallback logic mostly for safety, though sync might be lost
+    return equip;
   }
 };
 
+// Legacy delete kept for safety, but we primarily use saveEquipment for toggling active status now
 export const deleteEquipment = async (id: string): Promise<void> => {
-   // Offline Mode
+   const idStr = String(id);
+
+   // OFFLINE
    if (!isSupabaseConfigured()) {
-    console.log(`[OFFLINE] Deleting equipment ${id}`);
-    // READ directly from storage to ensure we have the truth
-    const current = loadFromStorage<Equipment[]>(STORAGE_KEYS.EQUIPMENT, [...INITIAL_EQUIPMENT]);
-    // FILTER strict string comparison
-    const updated = current.filter(e => String(e.id) !== String(id));
-    // SAVE back
-    saveToStorage(STORAGE_KEYS.EQUIPMENT, updated);
-    // UPDATE memory
-    mockEquipment = updated;
-    return Promise.resolve();
-  }
-  
-  // Online Mode
-  try {
-    const { error } = await supabase.from('equipment').delete().eq('id', id);
-    if (error) throw error;
-    
-    // Also update local mock just in case
-    const current = loadFromStorage<Equipment[]>(STORAGE_KEYS.EQUIPMENT, [...INITIAL_EQUIPMENT]);
-    const updated = current.filter(e => String(e.id) !== String(id));
-    saveToStorage(STORAGE_KEYS.EQUIPMENT, updated);
-    mockEquipment = updated;
-  } catch (e) {
-    console.error("Delete failed on server, trying local force delete", e);
-    // Force local delete if server fails
-    const current = loadFromStorage<Equipment[]>(STORAGE_KEYS.EQUIPMENT, [...INITIAL_EQUIPMENT]);
-    const updated = current.filter(e => String(e.id) !== String(id));
-    saveToStorage(STORAGE_KEYS.EQUIPMENT, updated);
-    mockEquipment = updated;
-  }
+       const current = loadFromStorage<Equipment[]>(STORAGE_KEYS.EQUIPMENT, [...INITIAL_EQUIPMENT]);
+       // Hard delete locally if requested via this function
+       const updated = current.filter(e => String(e.id) !== idStr);
+       saveToStorage(STORAGE_KEYS.EQUIPMENT, updated);
+       mockEquipment = updated;
+       return Promise.resolve();
+   }
+
+   // ONLINE
+   try {
+        const idParam = /^\d+$/.test(id) ? parseInt(id, 10) : id;
+        await supabase.from('equipment').delete().eq('id', idParam);
+   } catch (err) {
+       console.error("Delete failed", err);
+   }
+   
+   return Promise.resolve();
 };
 
 export const getReservationsByDate = async (date: string): Promise<Reservation[]> => {
@@ -257,12 +292,16 @@ export const deleteReservation = async (id: string): Promise<void> => {
     saveToStorage(STORAGE_KEYS.RESERVATIONS, mockReservations);
     return Promise.resolve();
   }
-  try {
-    const { error } = await supabase.from('reservations').delete().eq('id', id);
-    if (error) throw error;
-  } catch (e) {
-      console.error("Delete failed, using mock", e);
-      mockReservations = mockReservations.filter(r => r.id !== id);
-      saveToStorage(STORAGE_KEYS.RESERVATIONS, mockReservations);
+  
+  const idParam = /^\d+$/.test(id) ? parseInt(id, 10) : id;
+
+  const { error } = await supabase.from('reservations').delete().eq('id', idParam);
+  
+  if (error) {
+      console.error("Failed to delete reservation:", error);
+      throw error;
   }
+  
+  mockReservations = mockReservations.filter(r => r.id !== id);
+  saveToStorage(STORAGE_KEYS.RESERVATIONS, mockReservations);
 };

@@ -60,7 +60,7 @@ const Sidebar: React.FC = () => {
           {isOpen && (
             <div className="flex flex-col">
                 <span className="text-xs text-slate-500 uppercase tracking-widest">{dbConnected ? 'Online' : 'Offline'}</span>
-                <span className="text-[10px] text-slate-400 font-mono">v2.5</span>
+                <span className="text-[10px] text-slate-400 font-mono">v2.8</span>
             </div>
           )}
         </div>
