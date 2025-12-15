@@ -13,14 +13,16 @@ const Workshop: React.FC = () => {
   const [loading, setLoading] = useState(false);
   
   // Modal States
-  const [isDayModalOpen, setIsDayModalOpen] = useState(false);
-  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  const [isReservationModalOpen, setIsReservationModalOpen] = useState(false);
   
   // Password Modal State
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   const [deletePassword, setDeletePassword] = useState('');
   const [passwordError, setPasswordError] = useState(false);
+
+  // Selected reservation for details
+  const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -39,7 +41,6 @@ const Workshop: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Get ONLY active equipment for the workshop dropdown
       const equip = await reservationService.getEquipment(false);
       setEquipmentList(equip.filter(e => e.type !== 'vehicle'));
       
@@ -52,31 +53,80 @@ const Workshop: React.FC = () => {
     }
   };
 
-  const openReservationModal = (date: Date) => {
-    setSelectedDay(date);
+  // --- Date Navigation (Weekly) ---
+  const handlePrevWeek = () => {
+    const newDate = new Date(currentDate);
+    newDate.setDate(newDate.getDate() - 7);
+    setCurrentDate(newDate);
+  };
+
+  const handleNextWeek = () => {
+    const newDate = new Date(currentDate);
+    newDate.setDate(newDate.getDate() + 7);
+    setCurrentDate(newDate);
+  };
+
+  const handleToday = () => {
+    setCurrentDate(new Date());
+  };
+
+  // --- Modal Logic ---
+  const openNewReservation = (date?: Date, time?: string) => {
+    const d = date || new Date();
+    // Default to next hour if not specified
+    let startT = time || '08:00';
+    
+    // Auto calculate end time (1 hour duration default)
+    const hourIndex = HOURS.indexOf(startT);
+    let endT = '';
+    if (hourIndex !== -1 && hourIndex < HOURS.length - 1) {
+        endT = HOURS[hourIndex + 1];
+    } else {
+        endT = HOURS[HOURS.length - 1]; // Max limit
+    }
+
     setFormData({
       resourceId: '',
-      date: date.toISOString().split('T')[0],
-      startTime: '',
-      endTime: '',
+      date: d.toISOString().split('T')[0],
+      startTime: startT,
+      endTime: endT,
       requester: '',
       observation: ''
     });
-    setIsDayModalOpen(true);
+    setSelectedReservation(null);
+    setIsReservationModalOpen(true);
   };
 
-  const handleDayClick = (date: Date) => {
-    openReservationModal(date);
+  const handleSlotClick = (date: Date, time: string) => {
+    openNewReservation(date, time);
   };
 
-  const handleNewReservationClick = () => {
-    // Defaults to today
-    openReservationModal(new Date());
+  const handleEventClick = (res: Reservation) => {
+    setSelectedReservation(res);
+    // Don't open the form modal, maybe show details or just allow delete from a small popup?
+    // For now, let's open a detail view inside the modal using the form but read-only or pre-filled?
+    // User requested "delete" functionality mainly.
+    // Let's reuse the modal logic but show it as "Details".
+    setFormData({
+        resourceId: res.resourceId,
+        date: res.date,
+        startTime: res.startTime,
+        endTime: res.endTime,
+        requester: res.requester,
+        observation: res.observation || ''
+    });
+    setIsReservationModalOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.date || !formData.resourceId) return;
+    // If we are in "View Mode" (selectedReservation exists), maybe we don't save?
+    // Or we treat it as an edit? For now, let's just handle Create. 
+    // If selectedReservation exists, we block creation to avoid duplicates or implement Edit logic later.
+    if (selectedReservation) {
+        alert("Edição não suportada ainda. Exclua e crie novamente.");
+        return;
+    }
 
     const resource = equipmentList.find(e => e.id === formData.resourceId);
 
@@ -93,42 +143,34 @@ const Workshop: React.FC = () => {
       });
       alert("Reserva realizada com sucesso!");
       loadData();
-      // Keep modal open so user can see the new reservation
+      setIsReservationModalOpen(false);
     } catch (err: any) {
       alert(err.message);
     }
   };
 
-  // 1. User clicks Trash -> Open Custom Password Modal
-  const requestDelete = (id: string) => {
-    setItemToDelete(id);
+  // --- Delete Logic ---
+  const requestDelete = () => {
+    if (!selectedReservation) return;
+    setItemToDelete(selectedReservation.id);
     setDeletePassword('');
     setPasswordError(false);
     setShowDeleteConfirm(true);
   };
 
-  // 2. User confirms inside the modal
   const confirmDelete = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (deletePassword !== MASTER_PASSWORD) {
         setPasswordError(true);
         return;
     }
-
     if (!itemToDelete) return;
 
     try {
-      // Optimistic Update
       setReservations(prev => prev.filter(r => r.id !== itemToDelete));
-      
-      // Close password modal
       setShowDeleteConfirm(false);
-      
-      // Perform deletion
+      setIsReservationModalOpen(false); // Close details modal
       await reservationService.deleteReservation(itemToDelete);
-      
-      // Reload to ensure sync
       loadData();
     } catch (error) {
       console.error("Erro ao excluir", error);
@@ -137,90 +179,113 @@ const Workshop: React.FC = () => {
     }
   };
 
-  const reservationMap = reservations.reduce((acc, curr) => {
-    acc[curr.date] = (acc[curr.date] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-
-  const selectedDayReservations = selectedDay 
-    ? reservations.filter(r => r.date === selectedDay.toISOString().split('T')[0])
-    : [];
+  // Helper for Header Date Range
+  const getWeekRangeString = () => {
+    const d = new Date(currentDate);
+    const day = d.getDay();
+    const start = new Date(d);
+    start.setDate(d.getDate() - day);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    
+    return `${start.getDate()} ${start.toLocaleDateString('pt-BR', {month:'short'})} - ${end.getDate()} ${end.toLocaleDateString('pt-BR', {month:'short'})}`;
+  };
 
   return (
-    <div className="p-8 h-screen overflow-y-auto">
-      <header className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div className="p-4 md:p-8 h-screen flex flex-col">
+      <header className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 flex-shrink-0">
         <div>
           <h1 className="text-3xl font-bold text-slate-800">Oficina Mecânica</h1>
-          <p className="text-slate-500 mt-1">Gestão de equipamentos fixos e reservas.</p>
+          <p className="text-slate-500 mt-1">Gestão visual de ocupação.</p>
         </div>
         
-        <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
+        <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto items-center">
              <button 
-                onClick={handleNewReservationClick}
+                onClick={() => openNewReservation()}
                 className="bg-blue-600 text-white px-6 py-2 rounded-lg shadow-lg hover:bg-blue-700 font-bold flex items-center justify-center gap-2 transition-transform active:scale-95"
             >
                 <FaPlus /> Nova Reserva
             </button>
 
-            <div className="flex gap-2 bg-white p-1 rounded-lg shadow-sm border border-slate-200">
-                <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)))} className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded">Anterior</button>
-                <span className="px-4 py-1.5 font-bold text-slate-800 min-w-[140px] text-center border-x border-slate-100 flex items-center justify-center">
-                    {currentDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+            <div className="flex gap-2 bg-white p-1 rounded-lg shadow-sm border border-slate-200 items-center">
+                <button onClick={handlePrevWeek} className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded text-sm font-medium">Anterior</button>
+                <span className="px-2 py-1.5 font-bold text-slate-800 min-w-[140px] text-center border-x border-slate-100 flex flex-col justify-center leading-tight cursor-pointer hover:bg-slate-50" onClick={handleToday} title="Ir para Hoje">
+                    <span className="text-xs text-slate-400 uppercase">Semana de</span>
+                    <span>{getWeekRangeString()}</span>
                 </span>
-                <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() + 1)))} className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded">Próximo</button>
+                <button onClick={handleNextWeek} className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded text-sm font-medium">Próximo</button>
             </div>
         </div>
       </header>
 
       {loading ? <div className="text-center py-10">Carregando...</div> : (
         <>
-            <div className="flex items-center gap-2 mb-3 text-sm text-slate-500 bg-blue-50 p-3 rounded border border-blue-100 w-fit">
+            <div className="flex items-center gap-2 mb-2 text-xs text-slate-500 bg-blue-50 p-2 rounded border border-blue-100 w-fit">
                 <FaInfoCircle className="text-blue-500" />
-                <span>Clique em um dia no calendário para ver detalhes ou agendar.</span>
+                <span>Clique em um espaço vazio para agendar. Clique em um bloco colorido para ver detalhes ou excluir.</span>
             </div>
-            <CalendarView 
-            currentDate={currentDate} 
-            onDateClick={handleDayClick} 
-            reservations={reservationMap}
-            themeColor="blue"
-            />
+            
+            <div className="flex-1 overflow-hidden">
+                <CalendarView 
+                    currentDate={currentDate} 
+                    onSlotClick={handleSlotClick} 
+                    onEventClick={handleEventClick}
+                    reservations={reservations}
+                    themeColor="blue"
+                />
+            </div>
         </>
       )}
 
-      {/* Main Detail Modal */}
+      {/* Reservation/Details Modal */}
       <Modal 
-        isOpen={isDayModalOpen} 
-        onClose={() => setIsDayModalOpen(false)} 
+        isOpen={isReservationModalOpen} 
+        onClose={() => setIsReservationModalOpen(false)} 
       >
         <div className="bg-white rounded-2xl overflow-hidden">
-          
-            {/* Header */}
-            <div className="p-6 pb-4">
-                <div className="flex items-center gap-3 mb-2">
-                    <div className="bg-blue-600 text-white p-2.5 rounded-lg shadow-lg shadow-blue-500/30">
-                        <FaTools size={24} />
+            <div className="p-6 pb-4 bg-slate-50 border-b border-slate-100">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="bg-blue-600 text-white p-2.5 rounded-lg shadow-lg shadow-blue-500/30">
+                            <FaTools size={20} />
+                        </div>
+                        <div>
+                            <h3 className="text-xl font-bold text-slate-800">
+                                {selectedReservation ? 'Detalhes da Reserva' : 'Nova Reserva'}
+                            </h3>
+                            <p className="text-sm text-slate-500">
+                                {selectedReservation ? 'Visualize ou exclua o agendamento.' : 'Preencha os dados para agendar.'}
+                            </p>
+                        </div>
                     </div>
-                    <div>
-                        <h3 className="text-2xl font-bold text-slate-800">Oficina Mecânica</h3>
-                        <p className="text-sm text-slate-500">Gestão de equipamentos fixos.</p>
-                    </div>
+                    
+                    {/* Delete Button (Only if viewing existing) */}
+                    {selectedReservation && (
+                         <button 
+                            type="button" 
+                            onClick={requestDelete} 
+                            className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-bold border border-transparent hover:border-red-100"
+                        >
+                            <FaTrash /> Excluir
+                        </button>
+                    )}
                 </div>
             </div>
 
-            <div className="p-6 pt-0">
-                <div className="bg-slate-50 p-5 rounded-xl border border-slate-100 shadow-inner mb-6">
-                    <h4 className="font-bold text-slate-800 flex items-center gap-2 mb-1 text-lg">
-                        <FaPlus className="text-blue-600" size={14} /> Nova Reserva
-                    </h4>
-                    <p className="text-sm text-slate-500 mb-4">Preencha os dados abaixo para bloquear o horário do equipamento.</p>
-                    
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Equipamento *</label>
+            <div className="p-6">
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    {/* Read-only info if selected, else Inputs */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="col-span-2">
+                             <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Equipamento</label>
+                             {selectedReservation ? (
+                                 <div className="p-3 bg-slate-100 rounded-lg text-slate-800 font-medium border border-slate-200">
+                                     {selectedReservation.resourceName}
+                                 </div>
+                             ) : (
                                 <select 
                                     required 
-                                    className="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none shadow-sm transition-all"
+                                    className="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none"
                                     value={formData.resourceId}
                                     onChange={e => setFormData({...formData, resourceId: e.target.value})}
                                 >
@@ -229,106 +294,74 @@ const Workshop: React.FC = () => {
                                     <option key={eq.id} value={eq.id}>{eq.name}</option>
                                     ))}
                                 </select>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Data *</label>
-                                <input 
-                                    type="date"
-                                    required
-                                    value={formData.date}
-                                    onChange={e => setFormData({...formData, date: e.target.value})}
-                                    className="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Início *</label>
-                                <select 
-                                className="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-                                value={formData.startTime}
-                                onChange={e => setFormData({...formData, startTime: e.target.value})}
-                                required
-                                >
-                                <option value="">--:--</option>
-                                {HOURS.slice(0, -1).map(h => <option key={h} value={h}>{h}</option>)}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Fim *</label>
-                                <select 
-                                className="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-                                value={formData.endTime}
-                                onChange={e => setFormData({...formData, endTime: e.target.value})}
-                                required
-                                >
-                                <option value="">--:--</option>
-                                {HOURS.slice(1).map(h => <option key={h} value={h}>{h}</option>)}
-                                </select>
-                            </div>
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Nome do Solicitante *</label>
-                            <input 
-                                type="text" 
-                                required
-                                className="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-                                placeholder="Nome completo"
-                                value={formData.requester}
-                                onChange={e => setFormData({...formData, requester: e.target.value})}
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Observações (Opcional)</label>
-                            <input 
-                                type="text" 
-                                className="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-                                placeholder="Ex: Manutenção, Peça U-20"
-                                value={formData.observation}
-                                onChange={e => setFormData({...formData, observation: e.target.value})}
-                            />
-                        </div>
-
-                        <button type="submit" className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-lg transition-all shadow-lg shadow-blue-500/30 flex justify-center items-center gap-2 text-sm uppercase tracking-wide">
-                            Confirmar Reserva
-                        </button>
-                    </form>
-                </div>
-
-                {/* List Existing for that day */}
-                {selectedDayReservations.length > 0 && (
-                    <div className="border-t border-slate-100 pt-4">
-                        <h5 className="text-xs font-bold text-slate-400 uppercase mb-3 ml-1">Agendamentos do dia ({selectedDayReservations.length})</h5>
-                        <div className="space-y-2 max-h-40 overflow-y-auto pr-2">
-                            {selectedDayReservations.map(res => (
-                                <div key={res.id} className="flex justify-between items-center bg-white p-3 rounded-lg border border-slate-100 shadow-sm hover:shadow-md transition-shadow group">
-                                    <div className="flex-1">
-                                        <div className="flex items-center gap-2 mb-1">
-                                            <span className="font-mono font-bold text-slate-700 text-xs bg-slate-100 px-2 py-0.5 rounded">{res.startTime} - {res.endTime}</span>
-                                            <span className="text-blue-600 font-semibold text-sm">{res.resourceName}</span>
-                                        </div>
-                                        <div className="text-slate-500 text-xs flex items-center gap-1 pl-1">
-                                            <span className="font-medium text-slate-600">{res.requester}</span>
-                                            {res.observation && <span className="text-slate-400">• {res.observation}</span>}
-                                        </div>
-                                    </div>
-                                    {/* Delete Trigger Button */}
-                                    <button 
-                                        type="button" 
-                                        onClick={() => requestDelete(res.id)} 
-                                        className="text-slate-300 hover:text-red-500 p-2 transition-colors"
-                                        title="Excluir Reserva"
-                                    >
-                                        <FaTrash size={16} />
-                                    </button>
-                                </div>
-                            ))}
+                             )}
                         </div>
                     </div>
-                )}
+
+                    <div className="grid grid-cols-3 gap-3">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Data</label>
+                            <input 
+                                type="date"
+                                disabled={!!selectedReservation}
+                                value={formData.date}
+                                onChange={e => setFormData({...formData, date: e.target.value})}
+                                className="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm disabled:bg-slate-50"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Início</label>
+                            <select 
+                                disabled={!!selectedReservation}
+                                className="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm disabled:bg-slate-50"
+                                value={formData.startTime}
+                                onChange={e => setFormData({...formData, startTime: e.target.value})}
+                            >
+                            {HOURS.slice(0, -1).map(h => <option key={h} value={h}>{h}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Fim</label>
+                            <select 
+                                disabled={!!selectedReservation}
+                                className="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm disabled:bg-slate-50"
+                                value={formData.endTime}
+                                onChange={e => setFormData({...formData, endTime: e.target.value})}
+                            >
+                            {HOURS.slice(1).map(h => <option key={h} value={h}>{h}</option>)}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Solicitante</label>
+                        <input 
+                            type="text" 
+                            disabled={!!selectedReservation}
+                            className="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm disabled:bg-slate-50"
+                            value={formData.requester}
+                            onChange={e => setFormData({...formData, requester: e.target.value})}
+                            placeholder="Nome completo"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Observações</label>
+                        <input 
+                            type="text" 
+                            disabled={!!selectedReservation}
+                            className="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm disabled:bg-slate-50"
+                            value={formData.observation}
+                            onChange={e => setFormData({...formData, observation: e.target.value})}
+                        />
+                    </div>
+
+                    {!selectedReservation && (
+                        <button type="submit" className="w-full mt-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-lg transition-all shadow-lg shadow-blue-500/30 text-sm uppercase tracking-wide">
+                            Confirmar Reserva
+                        </button>
+                    )}
+                </form>
             </div>
         </div>
       </Modal>
@@ -341,8 +374,8 @@ const Workshop: React.FC = () => {
                     <div className="bg-red-100 text-red-600 p-3 rounded-full mb-3">
                         <FaExclamationTriangle size={24} />
                     </div>
-                    <h3 className="text-lg font-bold text-slate-800">Autorização Necessária</h3>
-                    <p className="text-sm text-slate-500 mt-1">Esta ação não pode ser desfeita. Digite a senha administrativa para confirmar.</p>
+                    <h3 className="text-lg font-bold text-slate-800">Confirmar Exclusão</h3>
+                    <p className="text-sm text-slate-500 mt-1">Digite a senha administrativa para remover este agendamento.</p>
                 </div>
 
                 <form onSubmit={confirmDelete}>
@@ -361,11 +394,7 @@ const Workshop: React.FC = () => {
                                 setPasswordError(false);
                             }}
                         />
-                        {passwordError && (
-                            <span className="text-xs text-red-500 font-bold mt-1 block text-left">Senha incorreta. Tente novamente.</span>
-                        )}
                     </div>
-
                     <div className="flex gap-3">
                         <button 
                             type="button" 
