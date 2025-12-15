@@ -1,0 +1,5 @@
+{
+  "name": "Oficina Manager",
+  "description": "Sistema de Gestão de Reservas de Oficina e Andaimes com persistência Supabase",
+  "requestFramePermissions": []
+}
