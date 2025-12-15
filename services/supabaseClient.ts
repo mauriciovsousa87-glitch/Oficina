@@ -1,29 +1,29 @@
 import { createClient } from '@supabase/supabase-js';
 
-// NOTA: Em um ambiente de produção real, estas chaves estariam em um arquivo .env
-// O usuário deve criar um arquivo .env com VITE_SUPABASE_URL e VITE_SUPABASE_KEY
+// --- CONFIGURAÇÃO DIRETA (HARDCODED) ---
+// Inseridas conforme solicitado para garantir conexão imediata
+const SUPABASE_URL = 'https://ghgyiscnzcwokillnlox.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdoZ3lpc2NuemN3b2tpbGxubG94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUzNzgyMjYsImV4cCI6MjA4MDk1NDIyNn0.1qzhIJ7A0pfxl8cuHTqFnCAZ7cMIICfhuYKlfhkhchU';
 
-const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://ghgyiscnzcwokillnlox.supabase.co';
+// Verifica se as chaves são válidas (simples checagem de string não vazia)
+const hasValidKey = SUPABASE_URL.length > 0 && SUPABASE_KEY.length > 0;
 
-// Tenta obter a chave do ambiente
-const envKey = (import.meta as any).env?.VITE_SUPABASE_KEY;
-
-// Verifica se a chave é válida (existe e não é vazia)
-const hasValidKey = envKey && envKey.length > 0;
-
-// Se não houver chave válida, usamos uma string dummy no formato JWT para evitar
-// que o createClient lance o erro "supabaseKey is required" e quebre a aplicação.
-// O serviço de reservas verificará isSupabaseConfigured() antes de tentar fazer chamadas reais.
-const fallbackKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRlbW8iLCJyb2xlIjoiYW5vbiIsImlhdCI6MTcwOTg1NjAwMCwiZXhwIjoyMDI1MjE2MDAwfQ.Hb';
-
-const supabaseKey = hasValidKey ? envKey : fallbackKey;
-
-if (!hasValidKey) {
-  console.warn("⚠️ Supabase Key não detectada. Iniciando em modo OFFLINE/DEMO.");
+if (hasValidKey) {
+  console.log("✅ Supabase: Conectado via credenciais fixas.");
+} else {
+  console.log("⚠️ Supabase: Credenciais ausentes.");
 }
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase = createClient(
+    hasValidKey ? SUPABASE_URL : 'https://placeholder.supabase.co', 
+    hasValidKey ? SUPABASE_KEY : 'placeholder-key'
+);
 
 export const isSupabaseConfigured = () => {
   return hasValidKey;
 };
+
+// Funções legadas removidas para evitar erros, mantidas vazias caso algo ainda as chame
+export const getStoredSupabaseConfig = () => null;
+export const saveSupabaseConfig = () => {};
+export const clearSupabaseConfig = () => {};

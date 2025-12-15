@@ -2,10 +2,10 @@ import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { Reservation, Equipment } from '../types';
 import { INITIAL_EQUIPMENT } from '../constants';
 
-// --- LOCAL STORAGE HELPERS (PERSISTENCE FOR OFFLINE MODE) ---
+// --- LOCAL STORAGE HELPERS ---
 const STORAGE_KEYS = {
-  RESERVATIONS: 'oficina_sys_reservations_v1',
-  EQUIPMENT: 'oficina_sys_equipment_v1'
+  RESERVATIONS: 'oficina_sys_reservations_v2',
+  EQUIPMENT: 'oficina_sys_equipment_v2'
 };
 
 const loadFromStorage = <T>(key: string, defaultVal: T): T => {
@@ -26,7 +26,7 @@ const saveToStorage = (key: string, data: any) => {
   }
 };
 
-// MOCK DATA INITIALIZATION
+// INITIALIZATION
 let mockReservations: Reservation[] = loadFromStorage(STORAGE_KEYS.RESERVATIONS, []);
 let mockEquipment: Equipment[] = loadFromStorage(STORAGE_KEYS.EQUIPMENT, [...INITIAL_EQUIPMENT]);
 
@@ -59,16 +59,22 @@ export const checkOverlap = async (
 // --- CRUD Operations ---
 
 export const getEquipment = async (): Promise<Equipment[]> => {
+  // 1. If Offline, refresh from storage explicitly to ensure UI is in sync
   if (!isSupabaseConfigured()) {
-    // Always refresh from storage in case of multiple tabs
-    mockEquipment = loadFromStorage(STORAGE_KEYS.EQUIPMENT, mockEquipment);
+    mockEquipment = loadFromStorage(STORAGE_KEYS.EQUIPMENT, [...INITIAL_EQUIPMENT]);
     return Promise.resolve([...mockEquipment]);
   }
 
+  // 2. If Online, try to fetch
   try {
-    const { data, error } = await supabase.from('equipment').select('*');
+    const { data, error } = await supabase
+      .from('equipment')
+      .select('*')
+      .order('name', { ascending: true });
+
     if (error) throw error;
-    if (!data) return [...mockEquipment];
+    
+    if (!data) return [];
     
     return data.map((d: any) => ({
       id: d.id.toString(),
@@ -77,19 +83,23 @@ export const getEquipment = async (): Promise<Equipment[]> => {
       isActive: d.is_active
     }));
   } catch (e) {
-    console.warn("Supabase fetch error, falling back to mock:", e);
+    console.warn("Supabase fetch error (using local fallback):", e);
     return [...mockEquipment];
   }
 };
 
 export const saveEquipment = async (equip: Equipment): Promise<Equipment> => {
+  // Offline Mode
   if (!isSupabaseConfigured()) {
     const newEquip = { ...equip, id: equip.id || Math.random().toString(36).substr(2, 9) };
-    mockEquipment.push(newEquip);
+    // Reload latest before saving to avoid overwrites
+    const current = loadFromStorage(STORAGE_KEYS.EQUIPMENT, [...INITIAL_EQUIPMENT]);
+    mockEquipment = [...current, newEquip];
     saveToStorage(STORAGE_KEYS.EQUIPMENT, mockEquipment);
     return Promise.resolve(newEquip);
   }
   
+  // Online Mode
   try {
     const { data, error } = await supabase.from('equipment').insert([{
       name: equip.name,
@@ -100,7 +110,7 @@ export const saveEquipment = async (equip: Equipment): Promise<Equipment> => {
     if (error) throw error;
     return { ...equip, id: data[0].id.toString() };
   } catch (e) {
-    console.error("Save failed, using mock", e);
+    console.error("Save failed, falling back to local storage", e);
     const newEquip = { ...equip, id: equip.id || Math.random().toString(36).substr(2, 9) };
     mockEquipment.push(newEquip);
     saveToStorage(STORAGE_KEYS.EQUIPMENT, mockEquipment);
@@ -109,24 +119,43 @@ export const saveEquipment = async (equip: Equipment): Promise<Equipment> => {
 };
 
 export const deleteEquipment = async (id: string): Promise<void> => {
+   // Offline Mode
    if (!isSupabaseConfigured()) {
-    mockEquipment = mockEquipment.filter(e => String(e.id) !== String(id));
-    saveToStorage(STORAGE_KEYS.EQUIPMENT, mockEquipment);
+    console.log(`[OFFLINE] Deleting equipment ${id}`);
+    // READ directly from storage to ensure we have the truth
+    const current = loadFromStorage<Equipment[]>(STORAGE_KEYS.EQUIPMENT, [...INITIAL_EQUIPMENT]);
+    // FILTER strict string comparison
+    const updated = current.filter(e => String(e.id) !== String(id));
+    // SAVE back
+    saveToStorage(STORAGE_KEYS.EQUIPMENT, updated);
+    // UPDATE memory
+    mockEquipment = updated;
     return Promise.resolve();
   }
   
+  // Online Mode
   try {
     const { error } = await supabase.from('equipment').delete().eq('id', id);
     if (error) throw error;
+    
+    // Also update local mock just in case
+    const current = loadFromStorage<Equipment[]>(STORAGE_KEYS.EQUIPMENT, [...INITIAL_EQUIPMENT]);
+    const updated = current.filter(e => String(e.id) !== String(id));
+    saveToStorage(STORAGE_KEYS.EQUIPMENT, updated);
+    mockEquipment = updated;
   } catch (e) {
-    console.error("Delete failed, using mock fallback", e);
-    mockEquipment = mockEquipment.filter(e => String(e.id) !== String(id));
-    saveToStorage(STORAGE_KEYS.EQUIPMENT, mockEquipment);
+    console.error("Delete failed on server, trying local force delete", e);
+    // Force local delete if server fails
+    const current = loadFromStorage<Equipment[]>(STORAGE_KEYS.EQUIPMENT, [...INITIAL_EQUIPMENT]);
+    const updated = current.filter(e => String(e.id) !== String(id));
+    saveToStorage(STORAGE_KEYS.EQUIPMENT, updated);
+    mockEquipment = updated;
   }
 };
 
 export const getReservationsByDate = async (date: string): Promise<Reservation[]> => {
   if (!isSupabaseConfigured()) {
+    mockReservations = loadFromStorage(STORAGE_KEYS.RESERVATIONS, []);
     return Promise.resolve(mockReservations.filter(r => r.date === date));
   }
 
@@ -158,7 +187,7 @@ export const getReservationsByDate = async (date: string): Promise<Reservation[]
 
 export const getAllReservations = async (): Promise<Reservation[]> => {
   if (!isSupabaseConfigured()) {
-    mockReservations = loadFromStorage(STORAGE_KEYS.RESERVATIONS, mockReservations);
+    mockReservations = loadFromStorage(STORAGE_KEYS.RESERVATIONS, []);
     return Promise.resolve(mockReservations);
   }
   try {
@@ -190,7 +219,8 @@ export const createReservation = async (res: Omit<Reservation, 'id'>): Promise<R
 
   if (!isSupabaseConfigured()) {
     const newRes = { ...res, id: Math.random().toString(36).substr(2, 9) };
-    mockReservations.push(newRes);
+    const current = loadFromStorage<Reservation[]>(STORAGE_KEYS.RESERVATIONS, []);
+    mockReservations = [...current, newRes];
     saveToStorage(STORAGE_KEYS.RESERVATIONS, mockReservations);
     return Promise.resolve(newRes);
   }
@@ -222,7 +252,8 @@ export const createReservation = async (res: Omit<Reservation, 'id'>): Promise<R
 
 export const deleteReservation = async (id: string): Promise<void> => {
   if (!isSupabaseConfigured()) {
-    mockReservations = mockReservations.filter(r => r.id !== id);
+    const current = loadFromStorage<Reservation[]>(STORAGE_KEYS.RESERVATIONS, []);
+    mockReservations = current.filter(r => r.id !== id);
     saveToStorage(STORAGE_KEYS.RESERVATIONS, mockReservations);
     return Promise.resolve();
   }

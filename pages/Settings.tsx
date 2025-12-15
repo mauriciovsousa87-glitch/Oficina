@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { FaTrash, FaPlus, FaUndo, FaExclamationTriangle } from 'react-icons/fa';
+import { FaTrash, FaPlus, FaUndo, FaExclamationTriangle, FaCloud } from 'react-icons/fa';
 import * as reservationService from '../services/reservationService';
+import { isSupabaseConfigured } from '../services/supabaseClient';
 import { Equipment } from '../types';
 import { INITIAL_EQUIPMENT } from '../constants';
 
@@ -8,67 +9,64 @@ const Settings: React.FC = () => {
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [newEqName, setNewEqName] = useState('');
   const [newEqType, setNewEqType] = useState('machine');
+  const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
     load();
+    setIsConnected(isSupabaseConfigured());
   }, []);
 
   const load = async () => {
-    const data = await reservationService.getEquipment();
-    setEquipment(data);
+    try {
+        const data = await reservationService.getEquipment();
+        setEquipment(data);
+    } catch (error) {
+        console.error("Error loading equipment:", error);
+    }
   };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newEqName) return;
     
-    // Optimistic update
-    const tempId = Math.random().toString();
-    const tempEq: Equipment = { id: tempId, name: newEqName, type: newEqType as any, isActive: true };
-    setEquipment([...equipment, tempEq]);
-    setNewEqName('');
-
     try {
         await reservationService.saveEquipment({
-        id: '', 
-        name: tempEq.name,
-        type: tempEq.type,
-        isActive: true
+            id: '', 
+            name: newEqName,
+            type: newEqType as any,
+            isActive: true
         });
-        load(); // Reload to get real ID
+        setNewEqName('');
+        await load(); 
     } catch (e) {
         console.error(e);
-        load(); // Revert on error
+        alert("Erro ao salvar.");
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm("Tem certeza que deseja remover este equipamento?")) {
-        // Optimistic update: remove immediately from UI
-        setEquipment(prev => prev.filter(e => e.id !== id));
-        
+    if (window.confirm("Tem certeza que deseja remover este equipamento?")) {
         try {
             await reservationService.deleteEquipment(id);
+            await load();
         } catch (e) {
             console.error("Failed to delete", e);
             alert("Erro ao excluir. Tente novamente.");
-            load(); // Revert
         }
     }
   };
 
   const restoreDefaults = async () => {
-    if (confirm("Isso irá recriar os equipamentos padrão. Continuar?")) {
-        setEquipment([...INITIAL_EQUIPMENT]); // Optimistic
+    if (window.confirm("Isso irá recriar os equipamentos padrão. Continuar?")) {
         for (const eq of INITIAL_EQUIPMENT) {
             await reservationService.saveEquipment(eq);
         }
-        load();
+        await load();
     }
   };
 
   const handleHardReset = () => {
-    const confirmation = prompt("DIGITE 'RESET' para apagar todos os dados locais e recarregar o sistema. Isso não pode ser desfeito.");
+    const confirmation = prompt("DIGITE 'RESET' para limpar cache local e recarregar. (Dados do servidor não serão apagados)");
     if (confirmation === 'RESET') {
         localStorage.clear();
         window.location.reload();
@@ -79,17 +77,25 @@ const Settings: React.FC = () => {
     <div className="p-8 h-screen overflow-y-auto">
       <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-slate-800">Configurações</h1>
-          <button 
-            onClick={handleHardReset}
-            className="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-3 py-2 rounded flex items-center gap-2 border border-red-200 transition-colors"
-          >
-              <FaExclamationTriangle /> Resetar Sistema Completo
-          </button>
+          
+          <div className="flex items-center gap-4">
+            <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm font-bold border ${isConnected ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}>
+                <FaCloud />
+                {isConnected ? 'Banco de Dados Conectado' : 'Modo Offline'}
+            </div>
+            
+            <button 
+                onClick={handleHardReset}
+                className="text-xs bg-red-50 hover:bg-red-100 text-red-600 px-3 py-2 rounded flex items-center gap-2 border border-red-100 transition-colors"
+            >
+                <FaExclamationTriangle /> Resetar App
+            </button>
+          </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         
-        {/* Add New */}
+        {/* Add New Equipment */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <h2 className="text-xl font-bold mb-4 text-slate-700">Adicionar Equipamento</h2>
           <form onSubmit={handleAdd} className="space-y-4">
@@ -124,7 +130,7 @@ const Settings: React.FC = () => {
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-bold text-slate-700">Equipamentos Ativos</h2>
-            {equipment.length === 0 && (
+            {equipment.length === 0 && !isConnected && (
                 <button onClick={restoreDefaults} className="text-xs flex items-center gap-1 text-blue-500 hover:underline">
                     <FaUndo /> Restaurar Padrões
                 </button>
@@ -141,7 +147,7 @@ const Settings: React.FC = () => {
                         </div>
                         <button 
                             onClick={() => handleDelete(eq.id)} 
-                            className="text-slate-300 hover:text-red-500 p-2 transition-colors"
+                            className="text-slate-300 hover:text-red-500 p-2 transition-colors cursor-pointer"
                             title="Excluir"
                         >
                             <FaTrash />
@@ -149,7 +155,7 @@ const Settings: React.FC = () => {
                     </div>
                 ))
             ) : (
-                <p className="text-slate-400 italic text-center py-4">Nenhum equipamento cadastrado.</p>
+                <p className="text-slate-400 italic text-center py-4">Nenhum equipamento encontrado.</p>
             )}
           </div>
         </div>
