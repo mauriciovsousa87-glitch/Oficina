@@ -1,5 +1,5 @@
 
-export type EquipmentType = 'machine' | 'tool' | 'vehicle' | 'area' | 'steam'; // Added 'steam'
+export type EquipmentType = 'machine' | 'tool' | 'vehicle' | 'area' | 'steam' | 'electrical' | 'pressure_vessel';
 
 export interface Equipment {
   id: string;
@@ -10,16 +10,16 @@ export interface Equipment {
 
 export interface Reservation {
   id: string;
-  resourceId: string; // Equipment ID or Scaffolding Location or Area
+  resourceId: string;
   resourceName: string; 
-  type: 'workshop' | 'scaffolding' | 'refrigeration' | 'machining' | 'armstrong'; // Added 'armstrong'
-  date: string; // YYYY-MM-DD
-  startTime: string; // HH:mm
-  endTime: string; // HH:mm
+  type: 'workshop' | 'scaffolding' | 'refrigeration' | 'machining' | 'armstrong';
+  date: string;
+  startTime: string;
+  endTime: string;
   requester: string;
   observation?: string;
   scaffoldingType?: 'assembly' | 'disassembly'; 
-  costSaved?: number; // Added for REC and Armstrong
+  costSaved?: number;
   createdAt?: string;
 }
 
@@ -27,12 +27,24 @@ export interface MaintenanceOrder {
   id: string;
   type: 'motor' | 'board';
   itemName: string;
-  description: string; // Failure reason
+  description: string;
   status: 'pending' | 'in_progress' | 'completed';
   costSaved: number;
   technician?: string;
-  entryDate: string; // YYYY-MM-DD
-  completionDate?: string; // YYYY-MM-DD
+  entryDate: string;
+  completionDate?: string;
+}
+
+export interface SafetyRecord {
+  id: string;
+  nrType: 'NR10' | 'NR13';
+  assetName: string;
+  description: string;
+  lastInspection: string;
+  nextInspection: string;
+  status: 'compliant' | 'attention' | 'critical';
+  responsible: string;
+  documentUrl?: string;
 }
 
 export interface CalendarDay {

@@ -10,6 +10,7 @@ import Refrigeration from './pages/Refrigeration';
 import RepairManager from './pages/RepairManager';
 import Machining from './pages/Machining';
 import Armstrong from './pages/Armstrong';
+import SafetyManagement from './pages/SafetyManagement';
 
 const App: React.FC = () => {
   return (
@@ -27,6 +28,10 @@ const App: React.FC = () => {
             <Route path="/motors" element={<RepairManager type="motor" />} />
             <Route path="/boards" element={<RepairManager type="board" />} />
             <Route path="/machining" element={<Machining />} />
+
+            {/* Safety Management */}
+            <Route path="/nr10" element={<SafetyManagement nrType="NR10" />} />
+            <Route path="/nr13" element={<SafetyManagement nrType="NR13" />} />
 
             <Route path="/reports" element={<Reports />} />
             <Route path="/settings" element={<Settings />} />

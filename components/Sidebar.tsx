@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { FaTools, FaLayerGroup, FaChartBar, FaCog, FaChevronLeft, FaChevronRight, FaSnowflake, FaBolt, FaMicrochip, FaCogs, FaFire } from 'react-icons/fa';
+import { FaTools, FaLayerGroup, FaChartBar, FaCog, FaChevronLeft, FaChevronRight, FaSnowflake, FaBolt, FaMicrochip, FaCogs, FaFire, FaShieldAlt, FaChargingStation, FaCubes } from 'react-icons/fa';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 
 const Sidebar: React.FC = () => {
@@ -66,6 +66,18 @@ const Sidebar: React.FC = () => {
           {isOpen && <span className="font-medium">Sala de Placas</span>}
         </NavLink>
 
+        <div className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-2 mt-4 px-3">{isOpen ? 'Segurança (NRs)' : '---'}</div>
+
+        <NavLink to="/nr10" className={({ isActive }) => linkClass(isActive, 'bg-amber-600')}>
+          <FaChargingStation className="text-xl min-w-[20px]" title="Segurança NR10" />
+          {isOpen && <span className="font-medium">Segurança NR10</span>}
+        </NavLink>
+
+        <NavLink to="/nr13" className={({ isActive }) => linkClass(isActive, 'bg-indigo-600')}>
+          <FaCubes className="text-xl min-w-[20px]" title="Segurança NR13" />
+          {isOpen && <span className="font-medium">Segurança NR13</span>}
+        </NavLink>
+
         <div className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-2 mt-4 px-3">{isOpen ? 'Gestão' : '---'}</div>
 
         <NavLink to="/reports" className={({ isActive }) => linkClass(isActive, 'bg-purple-600')}>
@@ -85,7 +97,7 @@ const Sidebar: React.FC = () => {
           {isOpen && (
             <div className="flex flex-col">
                 <span className="text-xs text-slate-500 uppercase tracking-widest">{dbConnected ? 'Online' : 'Offline'}</span>
-                <span className="text-[10px] text-slate-400 font-mono">v4.1</span>
+                <span className="text-[10px] text-slate-400 font-mono">v4.5</span>
             </div>
           )}
         </div>
