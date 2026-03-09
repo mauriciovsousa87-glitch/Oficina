@@ -112,7 +112,7 @@ const Machining: React.FC = () => {
       loadData();
       setIsModalOpen(false);
     } catch (err: any) {
-      alert(err.message);
+      alert(err.message || JSON.stringify(err));
     }
   };
 

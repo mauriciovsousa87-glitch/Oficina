@@ -145,7 +145,7 @@ const Workshop: React.FC = () => {
       loadData();
       setIsReservationModalOpen(false);
     } catch (err: any) {
-      alert(err.message);
+      alert(err.message || JSON.stringify(err));
     }
   };
 

@@ -29,7 +29,7 @@ export interface Reservation {
   manufactureStartDate?: string; // For Machining
   manufactureEndDate?: string; // For Machining
   impactValue?: number; // For Armstrong
-  impactUnit?: 'MJ' | 'vapor' | 'agua' | 'kg/h' | 'R$' | 'ton'; // For Armstrong
+  impactUnit?: 'MJ' | 'vapor' | 'agua' | 'MJ/hl' | 'R$' | 'ton'; // For Armstrong
 }
 
 export interface MaintenanceOrder {
@@ -66,4 +66,24 @@ export interface CalendarDay {
   isToday: boolean;
   hasReservation: boolean;
   reservationCount: number;
+}
+
+export interface VaporBacklog {
+  id: string;
+  area: string;
+  subArea: string;
+  problem: string;
+  impactValue: number;
+  investment: number;
+  executionDate?: string;
+  startTime?: string;
+  endTime?: string;
+  status: 'not_programmed' | 'programmed' | 'realized';
+  createdAt?: string;
+}
+
+export interface PCMArea {
+  id: string;
+  date: string;
+  areas: string[];
 }
