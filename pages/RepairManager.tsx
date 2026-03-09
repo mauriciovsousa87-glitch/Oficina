@@ -16,7 +16,7 @@ const RepairManager: React.FC<RepairManagerProps> = ({ type }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   
   const [formData, setFormData] = useState<Partial<MaintenanceOrder>>({
-    itemName: '', description: '', status: 'pending', costSaved: 0, technician: ''
+    itemName: '', description: '', status: 'pending', costSaved: 0, technician: '', area: '', subArea: ''
   });
 
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -43,7 +43,7 @@ const RepairManager: React.FC<RepairManagerProps> = ({ type }) => {
   };
 
   const handleCreate = () => {
-      setFormData({ itemName: '', description: '', status: 'pending', costSaved: 0, technician: '' });
+      setFormData({ itemName: '', description: '', status: 'pending', costSaved: 0, technician: '', area: '', subArea: '' });
       setIsModalOpen(true);
   };
 
@@ -58,6 +58,8 @@ const RepairManager: React.FC<RepairManagerProps> = ({ type }) => {
             status: formData.status as any,
             costSaved: Number(formData.costSaved),
             technician: formData.technician,
+            area: formData.area,
+            subArea: formData.subArea,
             entryDate: new Date().toISOString().split('T')[0]
         });
         loadData();
@@ -116,10 +118,11 @@ const RepairManager: React.FC<RepairManagerProps> = ({ type }) => {
                             </div>
                             <p className="text-sm text-slate-500 mb-4">{order.description}</p>
                             
-                            <div className="text-xs text-slate-400 space-y-1">
+                            <div className="text-xs text-slate-400 space-y-1 mb-3">
                                 <p>Entrada: {new Date(order.entryDate + 'T12:00:00').toLocaleDateString()}</p>
                                 {order.completionDate && <p>Saída: {new Date(order.completionDate + 'T12:00:00').toLocaleDateString()}</p>}
                                 {order.technician && <p>Técnico: {order.technician}</p>}
+                                {order.area && <p>Área: {order.area} {order.subArea ? `(${order.subArea})` : ''}</p>}
                             </div>
 
                             {order.costSaved > 0 && (
@@ -163,6 +166,16 @@ const RepairManager: React.FC<RepairManagerProps> = ({ type }) => {
                     <div>
                         <label className="block text-xs font-bold text-slate-500 mb-1">Motivo / Defeito</label>
                         <textarea className="w-full p-2 border rounded" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} placeholder="Ex: Queima por sobrecarga..." rows={3} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">Área</label>
+                            <input className="w-full p-2 border rounded" value={formData.area} onChange={e => setFormData({...formData, area: e.target.value})} placeholder="Ex: Envase" />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">Sub-Área / Linha</label>
+                            <input className="w-full p-2 border rounded" value={formData.subArea} onChange={e => setFormData({...formData, subArea: e.target.value})} placeholder="Ex: Linha 1" />
+                        </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                          <div>

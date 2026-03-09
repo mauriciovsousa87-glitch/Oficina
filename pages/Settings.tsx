@@ -6,7 +6,7 @@ import { isSupabaseConfigured } from '../services/supabaseClient';
 import { Equipment } from '../types';
 
 const Settings: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'oficina' | 'refrigeracao' | 'armstrong'>('oficina');
+  const [activeTab, setActiveTab] = useState<'oficina' | 'refrigeracao' | 'armstrong' | 'machining'>('oficina');
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   
   // Form State
@@ -38,6 +38,7 @@ const Settings: React.FC = () => {
       if (activeTab === 'oficina') return e.type === 'machine' || e.type === 'tool' || e.type === 'vehicle';
       if (activeTab === 'refrigeracao') return e.type === 'area';
       if (activeTab === 'armstrong') return e.type === 'steam';
+      if (activeTab === 'machining') return e.type === 'machine'; // Machining uses machines too
       return false;
   });
 
@@ -52,6 +53,7 @@ const Settings: React.FC = () => {
         let typeToSave = eqType;
         if (activeTab === 'refrigeracao') typeToSave = 'area';
         if (activeTab === 'armstrong') typeToSave = 'steam';
+        if (activeTab === 'machining') typeToSave = 'machine';
 
         await reservationService.saveEquipment({
             id: editingId || '',
@@ -109,6 +111,9 @@ const Settings: React.FC = () => {
           </button>
           <button onClick={() => setActiveTab('armstrong')} className={`pb-2 px-4 font-bold flex items-center gap-2 whitespace-nowrap ${activeTab === 'armstrong' ? 'text-rose-600 border-b-2 border-rose-600' : 'text-slate-400'}`}>
               <FaFire /> Armstrong
+          </button>
+          <button onClick={() => setActiveTab('machining')} className={`pb-2 px-4 font-bold flex items-center gap-2 whitespace-nowrap ${activeTab === 'machining' ? 'text-slate-600 border-b-2 border-slate-600' : 'text-slate-400'}`}>
+              <FaCogs /> REC (Usinagem)
           </button>
       </div>
 

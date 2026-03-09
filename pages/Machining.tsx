@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { FaCogs, FaPlus, FaTrash, FaMoneyBillWave } from 'react-icons/fa';
+import { FaCogs, FaPlus, FaTrash, FaCheck, FaTimes, FaExclamationTriangle, FaInfoCircle, FaMoneyBillWave } from 'react-icons/fa';
 import CalendarView from '../components/CalendarView';
 import Modal from '../components/Modal';
 import { HOURS, MASTER_PASSWORD } from '../constants';
@@ -21,6 +21,8 @@ const Machining: React.FC = () => {
     date: '',
     startTime: '',
     endTime: '',
+    manufactureStartDate: '',
+    manufactureEndDate: '',
     requester: '',
     observation: '',
     costSaved: 0
@@ -37,10 +39,6 @@ const Machining: React.FC = () => {
     setLoading(true);
     try {
       const allEquip = await reservationService.getEquipment(true);
-      // Assuming machines for REC are categorized as 'machine' but we can filter specific names if we want, 
-      // or user can create a new type. For V1 let's use 'machine' and user filters by name in UI or separate type later.
-      // For now, I'll show all 'machine' types here too or user can create 'rec_machine' in future.
-      // Let's rely on Settings to define what machines are available.
       setMachines(allEquip.filter(e => e.type === 'machine')); 
       
       const allRes = await reservationService.getAllReservations();
@@ -64,6 +62,8 @@ const Machining: React.FC = () => {
       date: d.toISOString().split('T')[0],
       startTime: startT,
       endTime: endT,
+      manufactureStartDate: d.toISOString().split('T')[0],
+      manufactureEndDate: d.toISOString().split('T')[0],
       requester: '',
       observation: '',
       costSaved: 0
@@ -80,6 +80,8 @@ const Machining: React.FC = () => {
         date: res.date,
         startTime: res.startTime,
         endTime: res.endTime,
+        manufactureStartDate: res.manufactureStartDate || res.date,
+        manufactureEndDate: res.manufactureEndDate || res.date,
         requester: res.requester,
         observation: res.observation || '',
         costSaved: res.costSaved || 0
@@ -101,13 +103,40 @@ const Machining: React.FC = () => {
         endTime: formData.endTime,
         requester: formData.requester,
         observation: formData.observation,
+        status: 'pending',
+        manufactureStartDate: formData.manufactureStartDate,
+        manufactureEndDate: formData.manufactureEndDate,
         costSaved: Number(formData.costSaved)
       });
-      alert("Serviço agendado!");
+      alert("Solicitação registrada! Aguarde aprovação.");
       loadData();
       setIsModalOpen(false);
     } catch (err: any) {
       alert(err.message);
+    }
+  };
+
+  const handleApprove = async () => {
+    if (!selectedReservation) return;
+    try {
+      await reservationService.updateReservationStatus(selectedReservation.id, 'approved');
+      alert("Produção aprovada!");
+      loadData();
+      setIsModalOpen(false);
+    } catch (e) {
+      alert("Erro ao aprovar");
+    }
+  };
+
+  const handleReject = async () => {
+    if (!selectedReservation) return;
+    try {
+      await reservationService.updateReservationStatus(selectedReservation.id, 'rejected');
+      alert("Produção rejeitada!");
+      loadData();
+      setIsModalOpen(false);
+    } catch (e) {
+      alert("Erro ao rejeitar");
     }
   };
 
@@ -160,9 +189,17 @@ const Machining: React.FC = () => {
                     <FaCogs /> {selectedReservation ? 'Detalhes do Serviço' : 'Novo Serviço de Usinagem'}
                 </h2>
                 
-                {selectedReservation && (
-                     <button onClick={() => setShowDeleteConfirm(true)} className="text-red-500 text-sm font-bold flex gap-1 items-center mb-4"><FaTrash/> Excluir</button>
-                )}
+                <div className="flex gap-2 mb-4">
+                    {selectedReservation && selectedReservation.status === 'pending' && (
+                        <>
+                            <button onClick={handleApprove} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-green-700"><FaCheck/> Aprovar</button>
+                            <button onClick={handleReject} className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-red-700"><FaTimes/> Rejeitar</button>
+                        </>
+                    )}
+                    {selectedReservation && (
+                        <button onClick={() => setShowDeleteConfirm(true)} className="text-red-500 text-sm font-bold flex gap-1 items-center"><FaTrash/> Excluir</button>
+                    )}
+                </div>
 
                 {!showDeleteConfirm ? (
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -175,7 +212,17 @@ const Machining: React.FC = () => {
                      </div>
                      <div className="grid grid-cols-2 gap-2">
                         <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1">Data</label>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">Início Manufatura</label>
+                            <input type="date" className="w-full p-2 border rounded" value={formData.manufactureStartDate} onChange={e => setFormData({...formData, manufactureStartDate: e.target.value})} disabled={!!selectedReservation} />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">Fim Manufatura</label>
+                            <input type="date" className="w-full p-2 border rounded" value={formData.manufactureEndDate} onChange={e => setFormData({...formData, manufactureEndDate: e.target.value})} disabled={!!selectedReservation} />
+                        </div>
+                     </div>
+                     <div className="grid grid-cols-2 gap-2">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">Data Agendada</label>
                             <input type="date" className="w-full p-2 border rounded" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} disabled={!!selectedReservation} />
                         </div>
                          <div>

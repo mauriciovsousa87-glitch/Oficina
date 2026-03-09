@@ -18,12 +18,14 @@ const Armstrong: React.FC = () => {
   
   const [formData, setFormData] = useState({
     resourceId: '',
+    customResourceName: '',
     date: '',
     startTime: '',
     endTime: '',
     requester: '',
     observation: '',
-    costSaved: 0
+    impactValue: 0,
+    impactUnit: 'kg/h' as 'MJ' | 'vapor' | 'agua' | 'kg/h' | 'R$' | 'ton'
   });
 
   const [deletePassword, setDeletePassword] = useState('');
@@ -58,12 +60,14 @@ const Armstrong: React.FC = () => {
 
     setFormData({
       resourceId: '',
+      customResourceName: '',
       date: d.toISOString().split('T')[0],
       startTime: startT,
       endTime: endT,
       requester: '',
       observation: '',
-      costSaved: 0
+      impactValue: 0,
+      impactUnit: 'kg/h'
     });
     setSelectedReservation(null);
     setIsModalOpen(true);
@@ -74,12 +78,14 @@ const Armstrong: React.FC = () => {
     setSelectedReservation(res);
     setFormData({
         resourceId: res.resourceId,
+        customResourceName: res.resourceName || '',
         date: res.date,
         startTime: res.startTime,
         endTime: res.endTime,
         requester: res.requester,
         observation: res.observation || '',
-        costSaved: res.costSaved || 0
+        impactValue: res.impactValue || 0,
+        impactUnit: res.impactUnit || 'kg/h'
     });
     setIsModalOpen(true);
   };
@@ -87,19 +93,33 @@ const Armstrong: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedReservation) return alert("Edição não suportada.");
-    const resource = equipmentList.find(m => m.id === formData.resourceId);
+    
+    let resourceName = formData.customResourceName;
+    let resourceId = formData.resourceId;
+
+    if (resourceId) {
+        const resource = equipmentList.find(m => m.id === resourceId);
+        resourceName = resource?.name || 'Equipamento';
+    } else if (!resourceName) {
+        alert("Selecione um equipamento ou digite o nome da linha.");
+        return;
+    } else {
+        // If free-form, we use a placeholder ID or just the name
+        resourceId = `custom-${Date.now()}`;
+    }
     
     try {
       await reservationService.createReservation({
-        resourceId: formData.resourceId,
-        resourceName: resource?.name || 'Equipamento',
+        resourceId: resourceId,
+        resourceName: resourceName,
         type: 'armstrong',
         date: formData.date,
         startTime: formData.startTime,
         endTime: formData.endTime,
         requester: formData.requester,
         observation: formData.observation,
-        costSaved: Number(formData.costSaved)
+        impactValue: Number(formData.impactValue),
+        impactUnit: formData.impactUnit
       });
       alert("Manutenção Agendada!");
       loadData();
@@ -144,14 +164,14 @@ const Armstrong: React.FC = () => {
              <div className="flex-1 overflow-hidden">
                 <div className="bg-rose-50 p-2 mb-2 rounded border border-rose-100 text-xs text-rose-800 flex gap-2 items-center">
                     <FaInfoCircle /> 
-                    <span>Cadastre as Estações de Vapor ou Linhas na aba Configurações (Aba Armstrong).</span>
+                    <span>Cadastre as Estações de Vapor ou Linhas na aba Configurações (Aba Armstrong) ou digite livremente.</span>
                 </div>
                 <CalendarView 
                     currentDate={currentDate}
                     onSlotClick={handleSlotClick}
                     onEventClick={handleEventClick}
                     reservations={reservations}
-                    themeColor="orange" // Using orange theme structure but effectively we want Redish override if possible, currently CalendarView only supports blue/orange. Orange is close enough for heat.
+                    themeColor="orange"
                 />
              </div>
         )}
@@ -170,10 +190,22 @@ const Armstrong: React.FC = () => {
                 <form onSubmit={handleSubmit} className="space-y-4">
                      <div>
                         <label className="block text-xs font-bold text-slate-500 mb-1">Equipamento / Linha</label>
-                        <select className="w-full p-2 border rounded" value={formData.resourceId} onChange={e => setFormData({...formData, resourceId: e.target.value})} disabled={!!selectedReservation}>
-                            <option value="">Selecione...</option>
-                            {equipmentList.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                        </select>
+                        <div className="flex gap-2">
+                            <select className="flex-1 p-2 border rounded" value={formData.resourceId} onChange={e => setFormData({...formData, resourceId: e.target.value})} disabled={!!selectedReservation}>
+                                <option value="">Outro (Digitar abaixo)...</option>
+                                {equipmentList.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                            </select>
+                        </div>
+                        {!formData.resourceId && (
+                            <input 
+                                type="text" 
+                                placeholder="Nome da linha ou purgador"
+                                className="w-full mt-2 p-2 border rounded text-sm"
+                                value={formData.customResourceName}
+                                onChange={e => setFormData({...formData, customResourceName: e.target.value})}
+                                disabled={!!selectedReservation}
+                            />
+                        )}
                      </div>
                      <div className="grid grid-cols-2 gap-2">
                         <div>
@@ -204,9 +236,16 @@ const Armstrong: React.FC = () => {
                         <input className="w-full p-2 border rounded" value={formData.observation} onChange={e => setFormData({...formData, observation: e.target.value})} disabled={!!selectedReservation} />
                      </div>
                      <div>
-                        <label className="block text-xs font-bold text-green-600 mb-1 flex items-center gap-1"><FaMoneyBillWave/> Custo Evitado (R$)</label>
-                        <input type="number" step="0.01" className="w-full p-2 border border-green-200 bg-green-50 rounded" value={formData.costSaved} onChange={e => setFormData({...formData, costSaved: Number(e.target.value)})} disabled={!!selectedReservation} placeholder="0.00" />
-                        <p className="text-[10px] text-slate-400 mt-1">Calcule baseado na perda de vapor (kg/h) eliminada.</p>
+                        <label className="block text-xs font-bold text-green-600 mb-1 flex items-center gap-1"><FaMoneyBillWave/> Impacto da Perda</label>
+                        <div className="flex gap-2">
+                            <input type="number" step="0.01" className="flex-1 p-2 border border-green-200 bg-green-50 rounded" value={formData.impactValue} onChange={e => setFormData({...formData, impactValue: Number(e.target.value)})} disabled={!!selectedReservation} placeholder="0.00" />
+                            <select className="w-24 p-2 border rounded bg-white" value={formData.impactUnit} onChange={e => setFormData({...formData, impactUnit: e.target.value as any})} disabled={!!selectedReservation}>
+                                <option value="kg/h">kg/h</option>
+                                <option value="R$">R$</option>
+                                <option value="ton">ton</option>
+                            </select>
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-1">Defina o impacto estimado da falha ou economia gerada.</p>
                      </div>
 
                      {!selectedReservation && <button type="submit" className="w-full bg-rose-600 text-white font-bold py-2 rounded hover:bg-rose-700 shadow-lg shadow-rose-500/30">Agendar</button>}

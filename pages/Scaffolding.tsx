@@ -1,10 +1,18 @@
-import React, { useState, useEffect } from 'react';
-import { FaLayerGroup, FaTrash, FaPlus, FaInfoCircle, FaLock, FaExclamationTriangle } from 'react-icons/fa';
+import React, { useState, useEffect, useMemo } from 'react';
+import { FaLayerGroup, FaTrash, FaPlus, FaInfoCircle, FaLock, FaExclamationTriangle, FaCheck, FaTimes, FaChartBar } from 'react-icons/fa';
 import CalendarView from '../components/CalendarView';
 import Modal from '../components/Modal';
 import { HOURS, MASTER_PASSWORD } from '../constants';
 import { Reservation } from '../types';
 import * as reservationService from '../services/reservationService';
+
+const SCAFFOLDING_AREAS = [
+  'Processo',
+  'Packaging',
+  'Bblend',
+  'Xaroparia',
+  'Utilidades e Meio Ambiente'
+];
 
 const Scaffolding: React.FC = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -22,10 +30,13 @@ const Scaffolding: React.FC = () => {
 
   const [formData, setFormData] = useState({
     location: '',
+    area: 'Processo',
     scaffoldType: 'assembly' as 'assembly' | 'disassembly',
     date: '',
     startTime: '',
     endTime: '',
+    disassemblyDate: '',
+    points: 1,
     requester: '',
     observation: ''
   });
@@ -45,6 +56,19 @@ const Scaffolding: React.FC = () => {
       setLoading(false);
     }
   };
+
+  const areaSummary = useMemo(() => {
+    const summary: Record<string, number> = {};
+    SCAFFOLDING_AREAS.forEach(a => summary[a] = 0);
+    
+    // Only count approved and currently mounted (assembly that hasn't been disassembled yet)
+    reservations.filter(r => r.status === 'approved' && r.scaffoldingType === 'assembly').forEach(r => {
+      if (r.area && summary[r.area] !== undefined) {
+        summary[r.area] += (r.points || 0);
+      }
+    });
+    return summary;
+  }, [reservations]);
 
   const handlePrevWeek = () => {
     const newDate = new Date(currentDate);
@@ -66,10 +90,13 @@ const Scaffolding: React.FC = () => {
 
     setFormData({
         location: '',
+        area: 'Processo',
         scaffoldType: 'assembly',
         date: d.toISOString().split('T')[0],
         startTime: startT,
         endTime: endT,
+        disassemblyDate: '',
+        points: 1,
         requester: '',
         observation: ''
     });
@@ -85,10 +112,13 @@ const Scaffolding: React.FC = () => {
     setSelectedReservation(res);
     setFormData({
         location: res.resourceName,
+        area: res.area || 'Processo',
         scaffoldType: res.scaffoldingType || 'assembly',
         date: res.date,
         startTime: res.startTime,
         endTime: res.endTime,
+        disassemblyDate: res.disassemblyDate || '',
+        points: res.points || 1,
         requester: res.requester,
         observation: res.observation || ''
     });
@@ -101,7 +131,10 @@ const Scaffolding: React.FC = () => {
         alert("Edição não suportada. Exclua e crie novamente.");
         return;
     }
-    if (!formData.date || !formData.location) return;
+    if (!formData.date || !formData.location || !formData.disassemblyDate) {
+        alert("Preencha todos os campos obrigatórios, incluindo a data prevista para desmontagem.");
+        return;
+    }
 
     try {
       await reservationService.createReservation({
@@ -113,13 +146,41 @@ const Scaffolding: React.FC = () => {
         endTime: formData.endTime,
         requester: formData.requester,
         scaffoldingType: formData.scaffoldType,
-        observation: formData.observation
+        observation: formData.observation,
+        status: 'pending',
+        disassemblyDate: formData.disassemblyDate,
+        points: formData.points,
+        area: formData.area
       });
-      alert("Solicitação registrada!");
+      alert("Solicitação registrada! Aguarde aprovação.");
       loadData();
       setIsModalOpen(false);
     } catch (err: any) {
       alert(err.message);
+    }
+  };
+
+  const handleApprove = async () => {
+    if (!selectedReservation) return;
+    try {
+      await reservationService.updateReservationStatus(selectedReservation.id, 'approved');
+      alert("Solicitação aprovada!");
+      loadData();
+      setIsModalOpen(false);
+    } catch (e) {
+      alert("Erro ao aprovar");
+    }
+  };
+
+  const handleReject = async () => {
+    if (!selectedReservation) return;
+    try {
+      await reservationService.updateReservationStatus(selectedReservation.id, 'rejected');
+      alert("Solicitação rejeitada!");
+      loadData();
+      setIsModalOpen(false);
+    } catch (e) {
+      alert("Erro ao rejeitar");
     }
   };
 
@@ -155,7 +216,7 @@ const Scaffolding: React.FC = () => {
   };
 
   return (
-    <div className="p-4 md:p-8 h-screen flex flex-col bg-orange-50/30">
+    <div className="p-4 md:p-8 h-screen flex flex-col bg-orange-50/30 overflow-y-auto">
       <header className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 flex-shrink-0">
         <div>
           <h1 className="text-3xl font-bold text-slate-800">Andaimes</h1>
@@ -181,13 +242,23 @@ const Scaffolding: React.FC = () => {
         </div>
       </header>
 
+      {/* Area Summary Dashboard */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+          {SCAFFOLDING_AREAS.map(area => (
+              <div key={area} className="bg-white p-4 rounded-xl border border-orange-100 shadow-sm">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">{area}</p>
+                  <p className="text-2xl font-bold text-orange-600">{areaSummary[area]} <span className="text-xs text-slate-400 font-normal">pts</span></p>
+              </div>
+          ))}
+      </div>
+
       {loading ? <div>Carregando...</div> : (
         <>
             <div className="flex items-center gap-2 mb-2 text-xs text-slate-500 bg-orange-50 p-2 rounded border border-orange-100 w-fit">
                 <FaInfoCircle className="text-orange-500" />
-                <span>Clique nos espaços para agendar.</span>
+                <span>Clique nos espaços para agendar. Solicitações pendentes aparecem com transparência.</span>
             </div>
-            <div className="flex-1 overflow-hidden">
+            <div className="flex-1 min-h-[500px]">
                 <CalendarView 
                 currentDate={currentDate} 
                 onSlotClick={handleSlotClick} 
@@ -215,15 +286,23 @@ const Scaffolding: React.FC = () => {
                             <p className="text-sm text-slate-500">{selectedReservation ? 'Detalhes' : 'Nova Solicitação'}</p>
                         </div>
                    </div>
-                   {selectedReservation && (
-                        <button 
-                           type="button" 
-                           onClick={requestDelete} 
-                           className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-bold"
-                       >
-                           <FaTrash /> Excluir
-                       </button>
-                   )}
+                   <div className="flex gap-2">
+                        {selectedReservation && selectedReservation.status === 'pending' && (
+                            <>
+                                <button onClick={handleApprove} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-green-700"><FaCheck/> Aprovar</button>
+                                <button onClick={handleReject} className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-red-700"><FaTimes/> Rejeitar</button>
+                            </>
+                        )}
+                        {selectedReservation && (
+                            <button 
+                                type="button" 
+                                onClick={requestDelete} 
+                                className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-bold"
+                            >
+                                <FaTrash /> Excluir
+                            </button>
+                        )}
+                   </div>
                </div>
           </div>
 
@@ -243,6 +322,20 @@ const Scaffolding: React.FC = () => {
                             />
                         </div>
                         <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Área</label>
+                            <select 
+                                disabled={!!selectedReservation}
+                                className="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 outline-none disabled:bg-slate-50"
+                                value={formData.area}
+                                onChange={e => setFormData({...formData, area: e.target.value})}
+                            >
+                                {SCAFFOLDING_AREAS.map(a => <option key={a} value={a}>{a}</option>)}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
                             <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Tipo de Serviço</label>
                             <select 
                                 disabled={!!selectedReservation}
@@ -254,11 +347,23 @@ const Scaffolding: React.FC = () => {
                                 <option value="disassembly">Desmontagem</option>
                             </select>
                         </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Quantidade de Pontos</label>
+                            <input 
+                                type="number" 
+                                required
+                                min="1"
+                                disabled={!!selectedReservation}
+                                className="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 outline-none disabled:bg-slate-50"
+                                value={formData.points}
+                                onChange={e => setFormData({...formData, points: Number(e.target.value)})}
+                            />
+                        </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-3">
-                        <div className="col-span-1">
-                            <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Data</label>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Data da Montagem</label>
                             <input 
                                 type="date"
                                 required
@@ -268,7 +373,21 @@ const Scaffolding: React.FC = () => {
                                 className="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm disabled:bg-slate-50"
                             />
                         </div>
-                        <div className="col-span-1">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Data Prevista Desmontagem</label>
+                            <input 
+                                type="date"
+                                required
+                                disabled={!!selectedReservation}
+                                value={formData.disassemblyDate}
+                                onChange={e => setFormData({...formData, disassemblyDate: e.target.value})}
+                                className="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm disabled:bg-slate-50 border-orange-200"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
                             <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Início</label>
                             <select 
                                 disabled={!!selectedReservation}
@@ -279,7 +398,7 @@ const Scaffolding: React.FC = () => {
                             {HOURS.slice(0, -1).map(h => <option key={h} value={h}>{h}</option>)}
                             </select>
                         </div>
-                        <div className="col-span-1">
+                        <div>
                             <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">Fim</label>
                             <select 
                                 disabled={!!selectedReservation}
@@ -306,7 +425,7 @@ const Scaffolding: React.FC = () => {
                     
                     {!selectedReservation && (
                         <button type="submit" className="w-full mt-2 bg-orange-600 hover:bg-orange-700 text-white font-bold py-3.5 rounded-lg transition-all shadow-lg shadow-orange-500/30 text-sm">
-                            Agendar
+                            Solicitar Agendamento
                         </button>
                     )}
                 </form>

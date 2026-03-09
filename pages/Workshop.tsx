@@ -42,7 +42,7 @@ const Workshop: React.FC = () => {
     setLoading(true);
     try {
       const equip = await reservationService.getEquipment(false);
-      setEquipmentList(equip.filter(e => e.type !== 'vehicle'));
+      setEquipmentList(equip.filter(e => e.type === 'machine' || e.type === 'tool'));
       
       const allRes = await reservationService.getAllReservations();
       setReservations(allRes.filter(r => r.type === 'workshop'));

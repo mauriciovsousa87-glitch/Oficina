@@ -21,6 +21,15 @@ export interface Reservation {
   scaffoldingType?: 'assembly' | 'disassembly'; 
   costSaved?: number;
   createdAt?: string;
+  // New fields
+  status?: 'pending' | 'approved' | 'rejected';
+  disassemblyDate?: string; // For Scaffolding
+  points?: number; // For Scaffolding
+  area?: string; // For Scaffolding summary
+  manufactureStartDate?: string; // For Machining
+  manufactureEndDate?: string; // For Machining
+  impactValue?: number; // For Armstrong
+  impactUnit?: 'MJ' | 'vapor' | 'agua' | 'kg/h' | 'R$' | 'ton'; // For Armstrong
 }
 
 export interface MaintenanceOrder {
@@ -33,6 +42,10 @@ export interface MaintenanceOrder {
   technician?: string;
   entryDate: string;
   completionDate?: string;
+  // New fields
+  requesterName?: string;
+  area?: string;
+  subArea?: string;
 }
 
 export interface SafetyRecord {

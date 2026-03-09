@@ -87,7 +87,27 @@ export const getReservationsByDate = async (date: string): Promise<Reservation[]
   if (!isSupabaseConfigured()) return mockReservations.filter(r => r.date === date);
   try {
     const { data } = await supabase.from('reservations').select('*').eq('date', date);
-    return (data || []).map(r => ({ id: r.id.toString(), resourceId: r.resource_id, resourceName: r.resource_name, type: r.type, date: r.date, startTime: r.start_time, endTime: r.end_time, requester: r.requester, observation: r.observation, costSaved: r.cost_saved, scaffoldingType: r.scaffolding_type }));
+    return (data || []).map(r => ({ 
+      id: r.id.toString(), 
+      resourceId: r.resource_id, 
+      resourceName: r.resource_name, 
+      type: r.type, 
+      date: r.date, 
+      startTime: r.start_time, 
+      endTime: r.end_time, 
+      requester: r.requester, 
+      observation: r.observation, 
+      costSaved: r.cost_saved, 
+      scaffoldingType: r.scaffolding_type,
+      status: r.status,
+      disassemblyDate: r.disassembly_date,
+      points: r.points,
+      area: r.area,
+      manufactureStartDate: r.manufacture_start_date,
+      manufactureEndDate: r.manufacture_end_date,
+      impactValue: r.impact_value,
+      impactUnit: r.impact_unit
+    }));
   } catch (e) { return mockReservations.filter(r => r.date === date); }
 };
 
@@ -95,19 +115,67 @@ export const getAllReservations = async (): Promise<Reservation[]> => {
   if (!isSupabaseConfigured()) return mockReservations;
   try {
     const { data } = await supabase.from('reservations').select('*');
-    return (data || []).map(r => ({ id: r.id.toString(), resourceId: r.resource_id, resourceName: r.resource_name, type: r.type, date: r.date, startTime: r.start_time, endTime: r.end_time, requester: r.requester, observation: r.observation, costSaved: r.cost_saved, scaffoldingType: r.scaffolding_type }));
+    return (data || []).map(r => ({ 
+      id: r.id.toString(), 
+      resourceId: r.resource_id, 
+      resourceName: r.resource_name, 
+      type: r.type, 
+      date: r.date, 
+      startTime: r.start_time, 
+      endTime: r.end_time, 
+      requester: r.requester, 
+      observation: r.observation, 
+      costSaved: r.cost_saved, 
+      scaffoldingType: r.scaffolding_type,
+      status: r.status,
+      disassemblyDate: r.disassembly_date,
+      points: r.points,
+      area: r.area,
+      manufactureStartDate: r.manufacture_start_date,
+      manufactureEndDate: r.manufacture_end_date,
+      impactValue: r.impact_value,
+      impactUnit: r.impact_unit
+    }));
   } catch (e) { return mockReservations; }
 };
 
 export const createReservation = async (res: Omit<Reservation, 'id'>): Promise<Reservation> => {
   if (!isSupabaseConfigured()) {
-    const newRes = { ...res, id: Math.random().toString(36).substr(2, 9) };
+    const newRes = { ...res, id: Math.random().toString(36).substr(2, 9), status: res.status || 'pending' };
     mockReservations = [...mockReservations, newRes];
     saveToStorage(STORAGE_KEYS.RESERVATIONS, mockReservations);
     return newRes;
   }
-  const { data } = await supabase.from('reservations').insert([{ resource_id: res.resourceId, resource_name: res.resourceName, type: res.type, date: res.date, start_time: res.startTime, end_time: res.endTime, requester: res.requester, observation: res.observation, cost_saved: res.costSaved || 0, scaffolding_type: res.scaffoldingType }]).select();
+  const { data } = await supabase.from('reservations').insert([{ 
+    resource_id: res.resourceId, 
+    resource_name: res.resourceName, 
+    type: res.type, 
+    date: res.date, 
+    start_time: res.startTime, 
+    end_time: res.endTime, 
+    requester: res.requester, 
+    observation: res.observation, 
+    cost_saved: res.costSaved || 0, 
+    scaffolding_type: res.scaffoldingType,
+    status: res.status || 'pending',
+    disassembly_date: res.disassemblyDate,
+    points: res.points,
+    area: res.area,
+    manufacture_start_date: res.manufactureStartDate,
+    manufacture_end_date: res.manufactureEndDate,
+    impact_value: res.impactValue,
+    impact_unit: res.impactUnit
+  }]).select();
   return { ...res, id: data![0].id.toString() };
+};
+
+export const updateReservationStatus = async (id: string, status: 'approved' | 'rejected'): Promise<void> => {
+  if (!isSupabaseConfigured()) {
+    mockReservations = mockReservations.map(r => r.id === id ? { ...r, status } : r);
+    saveToStorage(STORAGE_KEYS.RESERVATIONS, mockReservations);
+    return;
+  }
+  await supabase.from('reservations').update({ status }).eq('id', id);
 };
 
 export const deleteReservation = async (id: string): Promise<void> => {
@@ -119,7 +187,20 @@ export const deleteReservation = async (id: string): Promise<void> => {
 export const getMaintenanceOrders = async (type: 'motor' | 'board'): Promise<MaintenanceOrder[]> => {
   if (!isSupabaseConfigured()) return mockMaintenance.filter(m => m.type === type);
   const { data } = await supabase.from('maintenance_orders').select('*').eq('type', type);
-  return (data || []).map(d => ({ id: d.id.toString(), type: d.type, itemName: d.item_name, description: d.description, status: d.status, costSaved: d.cost_saved, technician: d.technician, entryDate: d.entry_date, completionDate: d.completion_date }));
+  return (data || []).map(d => ({ 
+    id: d.id.toString(), 
+    type: d.type, 
+    itemName: d.item_name, 
+    description: d.description, 
+    status: d.status, 
+    costSaved: d.cost_saved, 
+    technician: d.technician, 
+    entryDate: d.entry_date, 
+    completionDate: d.completion_date,
+    requesterName: d.requester_name,
+    area: d.area,
+    subArea: d.sub_area
+  }));
 };
 
 export const saveMaintenanceOrder = async (order: MaintenanceOrder): Promise<MaintenanceOrder> => {
@@ -130,7 +211,19 @@ export const saveMaintenanceOrder = async (order: MaintenanceOrder): Promise<Mai
     return order;
   }
   // Fixed typo: changed order.completion_date to order.completionDate
-  const payload = { type: order.type, item_name: order.itemName, description: order.description, status: order.status, cost_saved: order.costSaved, technician: order.technician, entry_date: order.entryDate, completion_date: order.completionDate };
+  const payload = { 
+    type: order.type, 
+    item_name: order.itemName, 
+    description: order.description, 
+    status: order.status, 
+    cost_saved: order.costSaved, 
+    technician: order.technician, 
+    entry_date: order.entryDate, 
+    completion_date: order.completionDate,
+    requester_name: order.requesterName,
+    area: order.area,
+    sub_area: order.subArea
+  };
   if (order.id) await supabase.from('maintenance_orders').update(payload).eq('id', order.id);
   else {
     const { data } = await supabase.from('maintenance_orders').insert([payload]).select();
